@@ -15,7 +15,7 @@ python -m torch.distributed.launch  \
     --nproc_per_node=$GPUS \
     --master_port=$PORT  \
     utils/train.py \
-    --config=local_configs.NYUDepthv2.DFormer_Large\
+    --config=local_configs.NYUDepthv2.DFormer_Base\
     --gpus=$GPUS \
     --no-sliding \
     --no-compile \
@@ -24,7 +24,7 @@ python -m torch.distributed.launch  \
     --compile_mode="default" \
     --no-amp \
     --val_amp \
-    --no-use_seed
+    # --no-use_seed
 
 
 # config for DFormers on NYUDepthv2 

@@ -1,4 +1,5 @@
 import os
+import sys
 import pprint
 import random
 import time
@@ -7,6 +8,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel
+from tensorboardX import SummaryWriter
+from importlib import import_module
+import datetime
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.dataloader.dataloader import get_train_loader, get_val_loader
 from models.builder import EncoderDecoder as segmodel
 from utils.dataloader.RGBXDataset import RGBXDataset
@@ -17,10 +23,7 @@ from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
 from utils.pyt_utils import all_reduce_tensor
-from tensorboardX import SummaryWriter
-from val_mm import evaluate, evaluate_msf
-from importlib import import_module
-import datetime
+from utils.val_mm import evaluate, evaluate_msf
 
 # from eval import evaluate_mid
 
@@ -248,7 +251,7 @@ with Engine(custom_parser=parser) as engine:
 
     optimizer.zero_grad()
 
-    logger.info("begin trainning:")
+    logger.info("begin training:")
     data_setting = {
         "rgb_root": config.rgb_root_folder,
         "rgb_format": config.rgb_format,

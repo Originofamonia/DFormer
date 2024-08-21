@@ -13,19 +13,19 @@ from tqdm import tqdm
 from tabulate import tabulate
 from torch.utils.data import DataLoader
 from torch.nn import functional as F
-
+from math import ceil
+import numpy as np
+# from torch.utils.data import DistributedSampler, RandomSampler
+# from torch import distributed as dist
+# from torch.nn.parallel import DistributedDataParallel as DDP
+# import cv2
 # from semseg.models import *
 # from semseg.datasets import *
 # from semseg.augmentations_mm import get_val_augmentation
 from utils.metrics_new import Metrics
 
 # from semseg.utils.utils import setup_cudnn
-from math import ceil
-import numpy as np
-from torch.utils.data import DistributedSampler, RandomSampler
-from torch import distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-import cv2
+
 
 # from semseg.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp, get_logger, cal_flops, print_iou
 
