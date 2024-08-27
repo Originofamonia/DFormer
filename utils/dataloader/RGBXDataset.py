@@ -140,3 +140,23 @@ class RGBXDataset(data.Dataset):
             cmap[i, 2] = b
         class_colors = cmap.tolist()
         return class_colors
+
+
+class TravRGBDDataset(RGBXDataset):
+    def __init__(self, setting, split_name, preprocess=None, file_length=None):
+        super(TravRGBDDataset, self).__init__()
+        self._split_name = split_name
+        self._rgb_path = setting['rgb_root']
+        self._rgb_format = setting['rgb_format']
+        self._gt_path = setting['gt_root']
+        self._gt_format = setting['gt_format']
+        self._transform_gt = setting['transform_gt']
+        self._x_path = setting['x_root']
+        self._x_format = setting['x_format']
+        self._x_single_channel = setting['x_single_channel']
+        self._train_source = setting['train_source']
+        self._eval_source = setting['eval_source']
+        self.class_names = setting['class_names']
+        self._file_names = self._get_file_names(split_name)
+        self._file_length = file_length
+        self.preprocess = preprocess

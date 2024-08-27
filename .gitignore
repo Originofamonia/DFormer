@@ -161,7 +161,7 @@ cython_debug/
 
 core.*
 checkpoints
-datasets/
+datasets/*
 output
 *_old*
 .history

@@ -15,7 +15,7 @@ import datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.dataloader.dataloader import get_train_loader, get_val_loader
 from models.builder import EncoderDecoder as segmodel
-from utils.dataloader.RGBXDataset import RGBXDataset
+from utils.dataloader.RGBXDataset import TravRGBDDataset
 
 from utils.init_func import group_weight
 from utils.init_func import configure_optimizers
@@ -130,7 +130,7 @@ with Engine(custom_parser=parser) as engine:
             "compile_mode is only valid when compile is enabled, ignoring compile_mode"
         )
 
-    train_loader, train_sampler = get_train_loader(engine, RGBXDataset, config)
+    train_loader, train_sampler = get_train_loader(engine, TravRGBDDataset, config)
 
     if args.gpus == 2:
         if args.mst and args.compile and args.compile_mode == "reduce-overhead":
@@ -157,7 +157,7 @@ with Engine(custom_parser=parser) as engine:
 
     val_loader, val_sampler = get_val_loader(
         engine,
-        RGBXDataset,
+        TravRGBDDataset,
         config,
         val_batch_size=int(config.batch_size * val_dl_factor) if config.dataset_name!="SUNRGBD" else int(args.gpus),
     )
