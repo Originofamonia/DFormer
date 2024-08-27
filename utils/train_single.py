@@ -24,12 +24,12 @@ from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
 from utils.pyt_utils import all_reduce_tensor
 from utils.val_mm import evaluate, evaluate_msf
-
+# from local_configs.NYUDepthv2.DFormer_Base import C
 # from eval import evaluate_mid
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--config", help="train config file path")
+parser.add_argument("--config", default=f'local_configs.NYUDepthv2.DFormer_Base', type=str, help="train config file path")
 parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
 # parser.add_argument('-d', '--devices', default='0,1', type=str)
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
@@ -46,7 +46,8 @@ parser.add_argument("--mst", default=True, action=argparse.BooleanOptionalAction
 parser.add_argument("--amp", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--val_amp", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--use_seed", default=True, action=argparse.BooleanOptionalAction)
-parser.add_argument("--local-rank", default=0)
+parser.add_argument("--local-rank", default=0, type=int)
+
 # parser.add_argument('--save_path', '-p', default=None)
 
 # os.environ['MASTER_PORT'] = '169710'
@@ -113,9 +114,8 @@ def set_seed(seed):
 
 with Engine(custom_parser=parser) as engine:
     args = parser.parse_args()
-
     config = getattr(import_module(args.config), "C")
-    logger = get_logger(config.log_dir, config.log_file, rank=engine.local_rank)
+    logger = get_logger(config.log_dir, config.log_file)  # , rank=engine.local_rank
     if args.use_seed:
         set_seed(config.seed)
         logger.info(f"set seed {config.seed}")
@@ -301,16 +301,14 @@ with Engine(custom_parser=parser) as engine:
         #     # file=sys.stdout,
         #     # bar_format=bar_format,
         # )
-        dataloader = iter(train_loader)
+        # dataloader = iter(train_loader)
 
         sum_loss = 0
         i = 0
         train_timer.start()
-        for idx in range(config.niters_per_epoch):
+        for idx, minibatch in enumerate(train_loader):
             engine.update_iteration(epoch, idx)
 
-            # minibatch = dataloader.next()
-            minibatch = next(dataloader)
             imgs = minibatch["data"]
             gts = minibatch["label"]
             modal_xs = minibatch["modal_x"]

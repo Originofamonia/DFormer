@@ -67,15 +67,13 @@ class RGBXDataset(data.Dataset):
             rgb, gt, x = self.preprocess(rgb, gt, x)
 
         # if self._split_name == 'train':
-        rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()
-        gt = torch.from_numpy(np.ascontiguousarray(gt)).long()
-        x = torch.from_numpy(np.ascontiguousarray(x)).float()
+        rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()  # [3, 480, 640]
+        gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
+        x = torch.from_numpy(np.ascontiguousarray(x)).float()  # [3, 480, 640]
         # else:
         #     rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()
         #     gt = torch.from_numpy(np.ascontiguousarray(gt)).long()
         #     x = torch.from_numpy(np.ascontiguousarray(x)).float()
-        print(rgb.size(), gt.size(), x.size())
-        exit()
         output_dict = dict(data=rgb, label=gt, modal_x=x, fn=str(item_name), n=len(self._file_names))
 
         return output_dict
