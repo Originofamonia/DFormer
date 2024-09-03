@@ -1,12 +1,13 @@
 import os
 import cv2
 import torch
+import pickle
 import numpy as np
+import pandas as pd
+from torch.utils.data import Dataset
+from torchvision import io
 
-import torch.utils.data as data
-
-
-class RGBXDataset(data.Dataset):
+class RGBXDataset(Dataset):
     def __init__(self, setting, split_name, preprocess=None, file_length=None):
         super(RGBXDataset, self).__init__()
         self._split_name = split_name
@@ -51,11 +52,10 @@ class RGBXDataset(data.Dataset):
         # gt_path = os.path.join(self._gt_path, item_name[2].replace("label/",""))
 
         rgb = self._open_image(rgb_path, cv2.COLOR_BGR2RGB)
-        # rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
 
         gt = self._open_image(gt_path, cv2.IMREAD_GRAYSCALE, dtype=np.uint8)
         if self._transform_gt:
-            gt = self._gt_transform(gt) 
+            gt = self._gt_transform(gt)
 
         if self._x_single_channel:
             x = self._open_image(x_path, cv2.IMREAD_GRAYSCALE)
@@ -142,21 +142,52 @@ class RGBXDataset(data.Dataset):
         return class_colors
 
 
-class TravRGBDDataset(RGBXDataset):
+class TravRGBDDataset(Dataset):
     def __init__(self, setting, split_name, preprocess=None, file_length=None):
         super(TravRGBDDataset, self).__init__()
-        self._split_name = split_name
-        self._rgb_path = setting['rgb_root']
-        self._rgb_format = setting['rgb_format']
-        self._gt_path = setting['gt_root']
-        self._gt_format = setting['gt_format']
+        self._split_name = split_name  # train, eval
         self._transform_gt = setting['transform_gt']
-        self._x_path = setting['x_root']
-        self._x_format = setting['x_format']
-        self._x_single_channel = setting['x_single_channel']
         self._train_source = setting['train_source']
         self._eval_source = setting['eval_source']
         self.class_names = setting['class_names']
-        self._file_names = self._get_file_names(split_name)
-        self._file_length = file_length
-        self.preprocess = preprocess
+        self.df = self._get_file_names(split_name)
+        # self._file_length = file_length
+        self.preprocess = None
+    
+    def _get_file_names(self, split_name):
+        if split_name == 'train':
+            df = pd.read_csv(self._train_source, index_col=0)
+        else:
+            df = pd.read_csv(self._eval_source, index_col=0)
+        return df
+    
+    def __len__(self):
+        return len(self.df)
+    
+    def __getitem__(self, index):
+        row = self.df.iloc[index]
+        rgb_path = row['img']
+        gt_path = rgb_path.replace('/images/', '/labels/')
+        gt_file = os.path.splitext(gt_path)[0] + '.png'
+        laser_file = row['laser']
+
+        # rgb = io.read_image(rgb_path)
+        # gt = io.read_image(gt_file)
+        with open(laser_file, 'rb') as f:
+            data = pickle.load(f)
+            laser = np.array(data['ranges'][::-1])[540:900]
+        rgb = self._open_image(rgb_path, cv2.COLOR_BGR2RGB)
+
+        gt = self._open_image(gt_file, cv2.IMREAD_GRAYSCALE, dtype=np.uint8)
+        # if self._transform_gt:
+        #     gt = self._gt_transform(gt)
+        if self.preprocess is not None:
+            rgb, gt, laser = self.preprocess(rgb, gt, laser)
+        
+        return rgb, gt, laser
+    
+    @staticmethod
+    def _open_image(filepath, mode=cv2.IMREAD_COLOR, dtype=None):
+        img = np.array(cv2.imread(filepath, mode), dtype=dtype)
+        return img
+        

@@ -271,15 +271,15 @@ class DFormer(BaseModule):
         
         load_state_dict(self, state_dict, strict=False)
 
-    def forward(self, x,x_e):
+    def forward(self, x, x_e):
         if x_e is None:
-            x_e=x
+            x_e = x
         if len(x.shape)==3:
-            x=x.unsqueeze(0)
+            x = x.unsqueeze(0)
         if len(x_e.shape)==3:
-            x_e=x_e.unsqueeze(0)
+            x_e = x_e.unsqueeze(0)
 
-        x_e=x_e[:,0,:,:].unsqueeze(1)
+        x_e = x_e[:,0,:,:].unsqueeze(1)
         
         outs = []
         for i in range(4):

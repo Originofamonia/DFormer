@@ -1,6 +1,8 @@
-from .._base_.datasets.NYUDepthv2 import *
+from .._base_.datasets.Trav import *
 
 """ Settings for network, this would be different for each kind of model"""
+C.dataset_name = "NYUDepthv2"
+C.dataset_path = osp.join(C.root_dir, "NYUDepthv2")
 C.backbone = "DFormer-Base"  # Remember change the path below.
 C.pretrained_model = "checkpoints/pretrained/DFormer_Base.pth.tar"
 C.decoder = "ham"

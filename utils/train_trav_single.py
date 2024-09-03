@@ -306,22 +306,23 @@ with Engine(custom_parser=parser) as engine:
         sum_loss = 0
         i = 0
         train_timer.start()
-        for idx, minibatch in enumerate(train_loader):
+        for idx, batch in enumerate(train_loader):
             engine.update_iteration(epoch, idx)
 
-            imgs = minibatch["data"]
-            gts = minibatch["label"]
-            modal_xs = minibatch["modal_x"]
+            # imgs = batch["data"]
+            # gts = batch["label"]
+            # modal_xs = batch["modal_x"]
+            rgb, gt, laser = batch
 
-            imgs = imgs.cuda(non_blocking=True)
-            gts = gts.cuda(non_blocking=True)
-            modal_xs = modal_xs.cuda(non_blocking=True)
+            rgb = rgb.cuda(non_blocking=True)
+            gt = gt.cuda(non_blocking=True)
+            laser = laser.cuda(non_blocking=True)
 
             if args.amp:
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    loss = model(imgs, modal_xs, gts)
+                    loss = model(rgb, laser, gt)
             else:
-                loss = model(imgs, modal_xs, gts)
+                loss = model(rgb, laser, gt)
 
             # reduce the whole loss over multi-gpu
             if engine.distributed:
