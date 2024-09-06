@@ -185,3 +185,8 @@ def normalize(img, mean, std):
     img = img - mean
     img = img / std
     return img
+
+
+def normalize_depth(laser, mean, std):
+    laser = laser.astype(np.float64)
+    return (laser - mean) / std

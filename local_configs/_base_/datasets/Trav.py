@@ -2,12 +2,14 @@
 import sys
 import os
 import os.path as osp
+import pickle
 import pandas as pd
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from local_configs._base_ import *
 
 # Dataset config
 """Dataset Path"""
+C.dataset = f'Trav'
 C.root_dir = f'/home/qiyuan/2024fall/DFormer/datasets/trav'
 C.scenes = ['erb', 'uc', 'wh']
 C.dataset_path = osp.join(C.root_dir)  #  "NYUDepthv2"
@@ -66,5 +68,27 @@ def rename_path():
     # merged_df.to_csv(f'datasets/trav/merged_rgbd.csv')
 
 
+# Function to read pkl file and convert to ndarray
+def read_pkl_to_array(file_path):
+    with open(file_path, 'rb') as file:
+        data = pickle.load(file)
+        laser = np.array(data['ranges'][::-1])[540:900]
+    # Convert the loaded data to a NumPy ndarray if it isn't one already
+    return laser
+
+
+def calc_depth_mean_std():
+    df = pd.read_csv(f'datasets/trav/merged_rgbd.csv', index_col=0)
+    # Apply the function to the 'file_paths' column to create a new column with the ndarrays
+    df['depths'] = df['laser'].apply(read_pkl_to_array)
+    all_elements = np.concatenate(df['depths'].values)
+
+    # Calculate mean and standard deviation of the concatenated array
+    overall_mean = np.mean(all_elements)
+    overall_std = np.std(all_elements)
+    print(f'mean: {overall_mean}, std: {overall_std}')  # 3.712411900604355, 1.4213359933145486
+
+
 if __name__ == '__main__':
-    rename_path()
+    # rename_path()
+    calc_depth_mean_std()

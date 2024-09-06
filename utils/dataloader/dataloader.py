@@ -10,6 +10,7 @@ from utils.transforms import (
     generate_random_crop_pos,
     random_crop_pad_to_shape,
     normalize,
+    normalize_depth,
 )
 
 
@@ -72,6 +73,31 @@ class TrainPre(object):
         return p_rgb, p_gt, p_modal_x
 
 
+class TravTransform(object):
+    def __init__(self, norm_mean, norm_std, sign=False, config=None):
+        self.config = config
+        self.norm_mean = norm_mean
+        self.norm_std = norm_std
+        self.sign = sign
+
+    def __call__(self, rgb, gt, modal_x):
+        rgb, gt, modal_x = random_mirror(rgb, gt, modal_x)
+        # if self.config.train_scale_array is not None:
+        #     rgb, gt, modal_x, scale = random_scale(
+        #         rgb, gt, modal_x, self.config.train_scale_array
+        #     )
+
+        rgb = normalize(rgb, self.norm_mean, self.norm_std)
+        if self.sign:
+            modal_x = normalize_depth(
+                modal_x, 3.7124, 1.4213
+            )  # [0.5,0.5,0.5]
+        else:
+            modal_x = normalize_depth(modal_x, 3.7124, 1.4213)
+        # print(rgb.shape, modal_x.shape)
+        return rgb.transpose(2, 0, 1), gt, modal_x.transpose(1, 0)
+
+
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
@@ -111,14 +137,18 @@ def get_train_loader(engine, dataset, config):
         "eval_source": config.eval_source,
         "class_names": config.class_names,
     }
-    train_preprocess = TrainPre(
-        config.norm_mean, config.norm_std, config.x_is_single_channel, config
-    )
+    if config.get('dataset', False) == 'Trav':
+        train_transform = TravTransform(config.norm_mean, config.norm_std, 
+                                        config.x_is_single_channel, config)
+    else:
+        train_transform = TrainPre(
+            config.norm_mean, config.norm_std, config.x_is_single_channel, config
+        )
 
     train_dataset = dataset(
         data_setting,
         "train",
-        train_preprocess,
+        train_transform,
         config.batch_size * config.niters_per_epoch,
     )
 

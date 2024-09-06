@@ -99,13 +99,13 @@ class attention(nn.Module):
         self.norm_e = LayerNorm(dim//2, eps=1e-6, data_format="channels_last")
         self.drop_depth = drop_depth 
 
-    def forward(self, x,x_e):
+    def forward(self, x, x_e):
         B, H, W, C = x.size()
         x = self.norm(x)
         x_e = self.norm_e(x_e)
         if self.window != 0:
-            short_cut = torch.cat([x,x_e],dim=3)##########
-            short_cut = short_cut.permute(0,3,1,2)#############
+            short_cut = torch.cat([x, x_e],dim=3)
+            short_cut = short_cut.permute(0,3,1,2)
 
         q = self.q(x)   
         cutted_x = self.q_cut(x)     
@@ -137,12 +137,12 @@ class attention(nn.Module):
         if self.window != 0:
             x = torch.cat([x, attn,cutted_x], dim=3)
         else:
-            x = torch.cat([x,cutted_x], dim=3)
+            x = torch.cat([x, cutted_x], dim=3)
         if not self.drop_depth:
             x_e = self.proj_e(x)
         x = self.proj(x)
 
-        return x,x_e
+        return x, x_e
 
 class Block(nn.Module):
     def __init__(self, index, dim, num_head, norm_cfg=dict(type='SyncBN', requires_grad=True), mlp_ratio=4.,block_index=0, last_block_index=50, window=7, dropout_layer=None,drop_depth=False):
@@ -166,11 +166,11 @@ class Block(nn.Module):
         self.drop_depth=drop_depth
 
     def forward(self, x, x_e):
-        res_x,res_e=x,x_e
-        x,x_e=self.attn(x,x_e)
+        res_x, res_e = x, x_e
+        x, x_e = self.attn(x, x_e)
 
         
-        x = res_x + self.dropout_layer(self.layer_scale_1.unsqueeze(0).unsqueeze(0) * x )
+        x = res_x + self.dropout_layer(self.layer_scale_1.unsqueeze(0).unsqueeze(0) * x)
 
         
         x = x + self.dropout_layer(self.layer_scale_2.unsqueeze(0).unsqueeze(0) * self.mlp(x))
@@ -182,8 +182,9 @@ class Block(nn.Module):
 
 
 class DFormer(BaseModule):
-    def __init__(self, in_channels=4, depths=(2, 2, 8, 2), dims=(32, 64, 128, 256), out_indices=(0, 1, 2, 3), windows=[7, 7, 7, 7], norm_cfg=dict(type='SyncBN', requires_grad=True),
-                 mlp_ratios=[8, 8, 4, 4], num_heads=(2, 4, 10, 16),last_block=[50,50,50,50], drop_path_rate=0.1, init_cfg=None):
+    def __init__(self, in_channels=4, depths=(2, 2, 8, 2), dims=(32, 64, 128, 256), 
+        out_indices=(0, 1, 2, 3), windows=[7, 7, 7, 7], norm_cfg=dict(type='SyncBN', requires_grad=True),
+        mlp_ratios=[8, 8, 4, 4], num_heads=(2, 4, 10, 16),last_block=[50,50,50,50], drop_path_rate=0.1, init_cfg=None):
         super().__init__()
         print(drop_path_rate)
         self.depths = depths
@@ -197,7 +198,9 @@ class DFormer(BaseModule):
                 nn.Conv2d(dims[0] // 2, dims[0], kernel_size=3, stride=2, padding=1),
                 nn.BatchNorm2d(dims[0]),
         )
-
+        # TODO: Add MLP layers for x_e
+        self.stem_e_fc1 = nn.Linear(360, 640)
+        self.stem_e_fc2 = nn.Linear(1, 480)
         self.downsample_layers_e = nn.ModuleList() 
         stem_e = nn.Sequential(
                 nn.Conv2d(1, dims[0] // 4, kernel_size=3, stride=2, padding=1),
@@ -248,9 +251,7 @@ class DFormer(BaseModule):
         #     layer_name = f'norm{i}'
         #     self.add_module(layer_name, layer)
 
-
     def init_weights(self,pretrained):
-       
         _state_dict=torch.load(pretrained)
         if 'state_dict_ema' in _state_dict.keys():
             _state_dict=_state_dict['state_dict_ema']
@@ -263,34 +264,36 @@ class DFormer(BaseModule):
                 state_dict[k[9:]] = v
             else:
                 state_dict[k] = v
-
         
         if list(state_dict.keys())[0].startswith('module.'):
             state_dict = {k[7:]: v for k, v in state_dict.items()}
 
-        
         load_state_dict(self, state_dict, strict=False)
 
     def forward(self, x, x_e):
         if x_e is None:
             x_e = x
-        if len(x.shape)==3:
+        if len(x.shape) == 3:
             x = x.unsqueeze(0)
-        if len(x_e.shape)==3:
-            x_e = x_e.unsqueeze(0)
-
+        if len(x_e.shape) == 3:
+            x_e = x_e.unsqueeze(2)
+        # x_e.shape: [1, 8, 1, 360]
         x_e = x_e[:,0,:,:].unsqueeze(1)
-        
+        # TODO: add MLP(x_e) here
+        x_e = self.stem_e_fc1(x_e)
+        x_e = x_e.permute(0, 1, 3, 2)
+        x_e = self.stem_e_fc2(x_e)
+        x_e = x_e.permute(0, 1, 3, 2)  # [B, 1, 480, 640]
+
         outs = []
         for i in range(4):
-          
             x = self.downsample_layers[i](x)
             x_e = self.downsample_layers_e[i](x_e)
            
             x = x.permute(0, 2, 3, 1)
             x_e = x_e.permute(0, 2, 3, 1)
             for blk in self.stages[i]:
-                x,x_e = blk(x,x_e)
+                x,x_e = blk(x, x_e)
             x = x.permute(0, 3, 1, 2)
             x_e = x_e.permute(0, 3, 1, 2)
             outs.append(x)
@@ -313,7 +316,8 @@ def DFormer_Small(pretrained=False, **kwargs):   # 81.0
 
 
 def DFormer_Base(pretrained=False,drop_path_rate=0.1, **kwargs):   # 82.1
-    model = DFormer(dims=[64, 128, 256, 512], mlp_ratios=[8, 8, 4, 4], depths=[3, 3, 12, 2], num_heads=[1, 2, 4, 8], windows=[0, 7, 7, 7],drop_path_rate=drop_path_rate, **kwargs)
+    model = DFormer(dims=[64, 128, 256, 512], mlp_ratios=[8, 8, 4, 4], depths=[3, 3, 12, 2], 
+                    num_heads=[1, 2, 4, 8], windows=[0, 7, 7, 7],drop_path_rate=drop_path_rate, **kwargs)
    
     if pretrained:
         model = load_model_weights(model, 'scnet', kwargs)

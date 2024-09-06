@@ -143,7 +143,7 @@ class RGBXDataset(Dataset):
 
 
 class TravRGBDDataset(Dataset):
-    def __init__(self, setting, split_name, preprocess=None, file_length=None):
+    def __init__(self, setting, split_name, transform=None, file_length=None):
         super(TravRGBDDataset, self).__init__()
         self._split_name = split_name  # train, eval
         self._transform_gt = setting['transform_gt']
@@ -152,7 +152,7 @@ class TravRGBDDataset(Dataset):
         self.class_names = setting['class_names']
         self.df = self._get_file_names(split_name)
         # self._file_length = file_length
-        self.preprocess = None
+        self.transform = transform
     
     def _get_file_names(self, split_name):
         if split_name == 'train':
@@ -179,12 +179,18 @@ class TravRGBDDataset(Dataset):
         rgb = self._open_image(rgb_path, cv2.COLOR_BGR2RGB)
 
         gt = self._open_image(gt_file, cv2.IMREAD_GRAYSCALE, dtype=np.uint8)
-        # if self._transform_gt:
-        #     gt = self._gt_transform(gt)
-        if self.preprocess is not None:
-            rgb, gt, laser = self.preprocess(rgb, gt, laser)
-        
-        return rgb, gt, laser
+        # print(laser.shape)
+        if len(laser.shape) == 1:
+            laser = np.expand_dims(laser, axis=1)
+
+        if self.transform is not None:
+            rgb, gt, laser = self.transform(rgb, gt, laser)
+        rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()  # [3, 480, 640]
+        gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
+        laser = torch.from_numpy(np.ascontiguousarray(laser)).float()
+        output_dict = dict(rgb=rgb, gt=gt, laser=laser, f=str(rgb_path), n=len(self.df))
+
+        return output_dict
     
     @staticmethod
     def _open_image(filepath, mode=cv2.IMREAD_COLOR, dtype=None):

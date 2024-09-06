@@ -309,10 +309,10 @@ with Engine(custom_parser=parser) as engine:
         for idx, batch in enumerate(train_loader):
             engine.update_iteration(epoch, idx)
 
-            # imgs = batch["data"]
-            # gts = batch["label"]
-            # modal_xs = batch["modal_x"]
-            rgb, gt, laser = batch
+            rgb = batch["rgb"]
+            gt = batch["gt"]
+            laser = batch["laser"]
+            # rgb, gt, laser = batch
 
             rgb = rgb.cuda(non_blocking=True)
             gt = gt.cuda(non_blocking=True)

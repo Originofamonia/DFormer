@@ -29,7 +29,7 @@ from utils.val_mm import evaluate, evaluate_msf
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--config", default=f'local_configs.Trav.DFormer_Base', type=str, help="train config file path")
+parser.add_argument("--config", default=f'local_configs.NYUDepthv2.DFormer_Base', type=str, help="train config file path")
 parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
 # parser.add_argument('-d', '--devices', default='0,1', type=str)
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
@@ -177,7 +177,7 @@ with Engine(custom_parser=parser) as engine:
     for k in args.__dict__:
         logger.info(k + ": " + str(args.__dict__[k]))
 
-    criterion = nn.CrossEntropyLoss(reduction="none", ignore_index=config.background)
+    criterion = nn.CrossEntropyLoss(reduction="none", ignore_index=config.background)  # config.background=255
 
     if args.syncbn:
         BatchNorm2d = nn.SyncBatchNorm

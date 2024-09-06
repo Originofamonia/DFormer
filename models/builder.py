@@ -84,9 +84,9 @@ class EncoderDecoder(nn.Module):
             norm_cfg=dict(type='BN', requires_grad=True)
 
         if cfg.drop_path_rate is not None:
-            self.backbone = backbone(drop_path_rate=cfg.drop_path_rate, norm_cfg = norm_cfg)
+            self.backbone = backbone(drop_path_rate=cfg.drop_path_rate, norm_cfg=norm_cfg)
         else:
-            self.backbone = backbone(drop_path_rate=0.1, norm_cfg = norm_cfg)
+            self.backbone = backbone(drop_path_rate=0.1, norm_cfg=norm_cfg)
         
 
         self.aux_head = None
