@@ -80,8 +80,9 @@ class RGBXDataset(Dataset):
 
     def _get_file_names(self, split_name):
         assert split_name in ['train', 'val']
-        source = self._train_source
-        if split_name == "val":
+        if split_name == 'train':
+            source = self._train_source
+        else:
             source = self._eval_source
 
         file_names = []

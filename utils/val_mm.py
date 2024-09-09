@@ -84,31 +84,34 @@ def evaluate(model, dataloader, config, device, engine, save_dir=None, sliding=F
     n_classes = config.num_classes
     metrics = Metrics(n_classes, config.background, device)
 
-    for idx, minibatch in enumerate(dataloader):
+    for idx, batch in enumerate(dataloader):
         if ((idx + 1) % int(len(dataloader) * 0.5) == 0 or idx == 0) and (
             (engine.distributed and (engine.local_rank == 0))
             or (not engine.distributed)
         ):
             print(f"Validation Iter: {idx + 1} / {len(dataloader)}")
-        images = minibatch["data"]
-        labels = minibatch["label"]
-        modal_xs = minibatch["modal_x"]
-        if len(images.shape) == 3:
-            images = images.unsqueeze(0)
-        if len(modal_xs.shape) == 3:
-            modal_xs = modal_xs.unsqueeze(0)
-        if len(labels.shape) == 2:
-            labels = labels.unsqueeze(0)
+        # images = minibatch["data"]
+        # labels = minibatch["label"]
+        # modal_xs = minibatch["modal_x"]
+        rgb = batch["rgb"]
+        gt = batch["gt"]
+        laser = batch["laser"]
+        if len(rgb.shape) == 3:
+            rgb = rgb.unsqueeze(0)
+        if len(laser.shape) == 3:
+            laser = laser.unsqueeze(0)
+        if len(gt.shape) == 2:
+            gt = gt.unsqueeze(0)
         # print(images.shape,labels.shape)
-        images = [images.to(device), modal_xs.to(device)]
-        labels = labels.to(device)
+        rgb = [rgb.to(device), laser.to(device)]
+        gt = gt.to(device)
         if sliding:
-            preds = slide_inference(model, images, modal_xs, config).softmax(dim=1)
+            preds = slide_inference(model, rgb, laser, config).softmax(dim=1)
         else:
-            preds = model(images[0], images[1]).softmax(dim=1)
+            preds = model(rgb[0], rgb[1]).softmax(dim=1)
         # print(preds.shape,labels.shape)
-        B, H, W = labels.shape
-        metrics.update(preds, labels)
+        B, H, W = gt.shape
+        metrics.update(preds, gt)
         # for i in range(B):
         #     metrics.update(preds[i].unsqueeze(0), labels[i].unsqueeze(0))
         # metrics.update(preds, labels)
@@ -138,7 +141,7 @@ def evaluate(model, dataloader, config, device, engine, save_dir=None, sliding=F
             palette = np.array(palette, dtype=np.uint8)
             cmap = ListedColormap(palette)
             names = (
-                minibatch["fn"][0]
+                batch["fn"][0]
                 .replace(".jpg", "")
                 .replace(".png", "")
                 .replace("datasets/", "")
@@ -269,19 +272,22 @@ def evaluate_msf(
     n_classes = config.num_classes
     metrics = Metrics(n_classes, config.background, device)
 
-    for idx, minibatch in enumerate(dataloader):
+    for idx, batch in enumerate(dataloader):
         if ((idx + 1) % int(len(dataloader) * 0.5) == 0 or idx == 0) and (
             (engine.distributed and (engine.local_rank == 0))
             or (not engine.distributed)
         ):
             print(f"Validation Iter: {idx + 1} / {len(dataloader)}")
-        images = minibatch["data"]
-        labels = minibatch["label"]
-        modal_xs = minibatch["modal_x"]
+        rgb = batch["rgb"]
+        gt = batch["gt"]
+        laser = batch["laser"]
+        # images = minibatch["data"]
+        # labels = minibatch["label"]
+        # modal_xs = minibatch["modal_x"]
         # print(images.shape,labels.shape)
-        images = [images.to(device), modal_xs.to(device)]
-        labels = labels.to(device)
-        B, H, W = labels.shape
+        rgb = [rgb.to(device), laser.to(device)]
+        gt = gt.to(device)
+        B, H, W = gt.shape
         scaled_logits = torch.zeros(B, n_classes, H, W).to(device)
 
         for scale in scales:
@@ -294,7 +300,7 @@ def evaluate_msf(
                 F.interpolate(
                     img, size=(new_H, new_W), mode="bilinear", align_corners=True
                 )
-                for img in images
+                for img in rgb
             ]
             scaled_images = [scaled_img.to(device) for scaled_img in scaled_images]
             if sliding:
@@ -349,7 +355,7 @@ def evaluate_msf(
             palette = np.array(palette, dtype=np.uint8)
             cmap = ListedColormap(palette)
             names = (
-                minibatch["fn"][0]
+                batch["fn"][0]
                 .replace(".jpg", "")
                 .replace(".png", "")
                 .replace("datasets/", "")
@@ -384,7 +390,7 @@ def evaluate_msf(
             else:
                 assert 1 == 2
 
-        metrics.update(scaled_logits, labels)
+        metrics.update(scaled_logits, gt)
 
     # ious, miou = metrics.compute_iou()
     # acc, macc = metrics.compute_pixel_acc()

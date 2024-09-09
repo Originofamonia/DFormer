@@ -191,11 +191,15 @@ def get_val_loader(engine, dataset, config, val_batch_size=1):
         "eval_source": config.eval_source,
         "class_names": config.class_names,
     }
-    val_preprocess = ValPre(
-        config.norm_mean, config.norm_std, config.x_is_single_channel, config
-    )
+    if config.get('dataset', False) == 'Trav':
+        val_transform = TravTransform(config.norm_mean, config.norm_std, 
+                                        config.x_is_single_channel, config)
+    else:
+        val_transform = ValPre(
+            config.norm_mean, config.norm_std, config.x_is_single_channel, config
+        )
 
-    val_dataset = dataset(data_setting, "val", val_preprocess)
+    val_dataset = dataset(data_setting, "val", val_transform)
 
     val_sampler = None
     is_shuffle = False

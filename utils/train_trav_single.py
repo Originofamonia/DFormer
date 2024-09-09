@@ -42,7 +42,7 @@ parser.add_argument("--sliding", default=False, action=argparse.BooleanOptionalA
 parser.add_argument("--compile", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--compile_mode", default="default")
 parser.add_argument("--syncbn", default=True, action=argparse.BooleanOptionalAction)
-parser.add_argument("--mst", default=True, action=argparse.BooleanOptionalAction)
+parser.add_argument("--mst", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--amp", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--val_amp", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--use_seed", default=True, action=argparse.BooleanOptionalAction)
