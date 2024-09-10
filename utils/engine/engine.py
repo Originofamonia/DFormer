@@ -155,7 +155,7 @@ class Engine(object):
             except:
                 pass
             self.checkpoint_state.pop()
-        checkpoint = osp.join(checkpoint_dir, f"epoch-{self.state.epoch}{infor}.pth")
+        checkpoint = osp.join(checkpoint_dir, f"epoch-{self.state.epoch}{infor}.pt")
         self.save_checkpoint(checkpoint)
 
     def restore_checkpoint(self):

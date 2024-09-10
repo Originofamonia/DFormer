@@ -77,5 +77,3 @@ def print_iou(iou, freq_IoU, mean_pixel_acc, pixel_acc, class_names=None, show_n
     # else:
     print(line[-1])
     return str(mean_IoU * 100)
-
-

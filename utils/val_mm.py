@@ -2,6 +2,8 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
 import pathlib
 import matplotlib as mpl
+from pptx import Presentation
+from pptx.util import Inches, Pt
 import torch
 import argparse
 import yaml
@@ -15,66 +17,85 @@ from torch.utils.data import DataLoader
 from torch.nn import functional as F
 from math import ceil
 import numpy as np
-# from torch.utils.data import DistributedSampler, RandomSampler
-# from torch import distributed as dist
-# from torch.nn.parallel import DistributedDataParallel as DDP
-# import cv2
-# from semseg.models import *
-# from semseg.datasets import *
-# from semseg.augmentations_mm import get_val_augmentation
+
 from utils.metrics_new import Metrics
 
-# from semseg.utils.utils import setup_cudnn
 
+@torch.no_grad()
+def save_preds(model, dataloader, config, device, engine, model_path=None, sliding=False):
+    print("Save preds")
+    model.eval()
+    n_classes = config.num_classes
+    metrics = Metrics(n_classes, config.background, device)
+    
+    output_path = Path(f'output/{model_path}/')
+    output_path.mkdir(parents=True, exist_ok=True)
 
-# from semseg.utils.utils import fix_seeds, setup_cudnn, cleanup_ddp, setup_ddp, get_logger, cal_flops, print_iou
+    for idx, batch in enumerate(dataloader):
+        if ((idx + 1) % int(len(dataloader) * 0.5) == 0 or idx == 0) and (
+            (engine.distributed and (engine.local_rank == 0))
+            or (not engine.distributed)
+        ):
+            print(f"Validation Iter: {idx + 1} / {len(dataloader)}")
 
+        rgb = batch["rgb"]
+        gt = batch["gt"]
+        laser = batch["laser"]
+        if len(rgb.shape) == 3:
+            rgb = rgb.unsqueeze(0)
+        if len(laser.shape) == 3:
+            laser = laser.unsqueeze(0)
+        if len(gt.shape) == 2:
+            gt = gt.unsqueeze(0)
 
-# def pad_image(img, target_size):
-#     rows_to_pad = max(target_size[0] - img.shape[2], 0)
-#     cols_to_pad = max(target_size[1] - img.shape[3], 0)
-#     padded_img = F.pad(img, (0, cols_to_pad, 0, rows_to_pad), "constant", 0)
-#     return padded_img
-
-
-# @torch.no_grad()
-# def sliding_predict(model, image, num_classes, flip=True):
-#     image_size = image[0].shape
-#     tile_size = (int(ceil(image_size[2] * 1)), int(ceil(image_size[3] * 1)))
-#     overlap = 1 / 3
-
-#     stride = ceil(tile_size[0] * (1 - overlap))
-
-#     num_rows = int(ceil((image_size[2] - tile_size[0]) / stride) + 1)
-#     num_cols = int(ceil((image_size[3] - tile_size[1]) / stride) + 1)
-#     total_predictions = torch.zeros(
-#         (num_classes, image_size[2], image_size[3]), device=torch.device("cuda")
-#     )
-#     count_predictions = torch.zeros(
-#         (image_size[2], image_size[3]), device=torch.device("cuda")
-#     )
-#     tile_counter = 0
-
-#     for row in range(num_rows):
-#         for col in range(num_cols):
-#             x_min, y_min = int(col * stride), int(row * stride)
-#             x_max = min(x_min + tile_size[1], image_size[3])
-#             y_max = min(y_min + tile_size[0], image_size[2])
-
-#             img = [modal[:, :, y_min:y_max, x_min:x_max] for modal in image]
-#             padded_img = [pad_image(modal, tile_size) for modal in img]
-#             tile_counter += 1
-#             # print(padded_img[0].shape,padded_img[1].shape)
-#             padded_prediction = model(padded_img[0], padded_img[1])
-#             if flip:
-#                 fliped_img = [padded_modal.flip(-1) for padded_modal in padded_img]
-#                 fliped_predictions = model(fliped_img[0], fliped_img[1])
-#                 padded_prediction += fliped_predictions.flip(-1)
-#             predictions = padded_prediction[:, :, : img[0].shape[2], : img[0].shape[3]]
-#             count_predictions[y_min:y_max, x_min:x_max] += 1
-#             total_predictions[:, y_min:y_max, x_min:x_max] += predictions.squeeze(0)
-
-#     return total_predictions.unsqueeze(0)
+        rgb = [rgb.to(device), laser.to(device)]
+        gt = gt.to(device)
+        if sliding:
+            preds = slide_inference(model, rgb, laser, config).softmax(dim=1)
+        else:
+            preds = model(rgb[0], rgb[1]).softmax(dim=1)
+        
+        B, H, W = gt.shape
+        metrics.update(preds, gt)
+        
+        palette = [
+            [128, 64, 128],
+            [244, 35, 232],
+            [70, 70, 70],
+            [102, 102, 156],
+            [190, 153, 153],
+            [153, 153, 153],
+            [250, 170, 30],
+            [220, 220, 0],
+            [107, 142, 35],
+            [152, 251, 152],
+            [70, 130, 180],
+            [220, 20, 60],
+            [255, 0, 0],
+            [0, 0, 142],
+            [0, 0, 70],
+            [0, 60, 100],
+            [0, 80, 100],
+            [0, 0, 230],
+            [119, 11, 32],
+        ]
+        palette = np.array(palette, dtype=np.uint8)
+        
+        preds = preds.argmax(dim=1).cpu().squeeze().numpy().astype(np.uint8)
+        for i, p in enumerate(preds):
+            rgb_path = batch['rgb_path'][i]
+            # gt_path = batch['gt_path'][i]
+            # laser_path = batch['laser_path'][i]
+            img_id = rgb_path.split('/')[-1].strip('.jpg')
+            np.save(f'{output_path}/{img_id}.npy', p)
+        # print(batch['rgb_path'], batch['gt_path'], batch['laser_path'], preds)
+    if engine.distributed:
+        all_metrics = [None for _ in range(engine.world_size)]
+        # all_predictions = Metrics(n_classes, config.background, device)
+        torch.distributed.all_gather_object(all_metrics, metrics)  # list of lists
+    else:
+        all_metrics = metrics
+    return all_metrics
 
 
 @torch.no_grad()

@@ -7,7 +7,7 @@ C.dataset_path = osp.join(C.root_dir, "NYUDepthv2")
 C.rgb_root_folder = osp.join(C.dataset_path, "RGB")
 C.rgb_format = ".jpg"
 C.gt_root_folder = osp.join(C.dataset_path, "Label")
-C.gt_format = ".png"
+C.gt_format = ".npy"
 C.gt_transform = True
 # True when label 0 is invalid, you can also modify the function _transform_gt in dataloader.RGBXDataset
 # True for most dataset valid, Faslse for MFNet(?)

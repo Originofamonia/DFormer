@@ -94,7 +94,7 @@ class TravTransform(object):
             )  # [0.5,0.5,0.5]
         else:
             modal_x = normalize_depth(modal_x, 3.7124, 1.4213)
-        # print(rgb.shape, modal_x.shape)
+        # gt = gt / 255
         return rgb.transpose(2, 0, 1), gt, modal_x.transpose(1, 0)
 
 

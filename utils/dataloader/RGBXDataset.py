@@ -169,7 +169,7 @@ class TravRGBDDataset(Dataset):
         row = self.df.iloc[index]
         rgb_path = row['img']
         gt_path = rgb_path.replace('/images/', '/labels/')
-        gt_file = os.path.splitext(gt_path)[0] + '.png'
+        gt_file = os.path.splitext(gt_path)[0] + '.npy'
         laser_file = row['laser']
 
         # rgb = io.read_image(rgb_path)
@@ -179,7 +179,8 @@ class TravRGBDDataset(Dataset):
             laser = np.array(data['ranges'][::-1])[540:900]
         rgb = self._open_image(rgb_path, cv2.COLOR_BGR2RGB)
 
-        gt = self._open_image(gt_file, cv2.IMREAD_GRAYSCALE, dtype=np.uint8)
+        # gt = self._open_image(gt_file, cv2.IMREAD_GRAYSCALE, dtype=np.uint8)
+        gt = np.load(gt_file)
         # print(laser.shape)
         if len(laser.shape) == 1:
             laser = np.expand_dims(laser, axis=1)
@@ -189,7 +190,8 @@ class TravRGBDDataset(Dataset):
         rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()  # [3, 480, 640]
         gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
         laser = torch.from_numpy(np.ascontiguousarray(laser)).float()
-        output_dict = dict(rgb=rgb, gt=gt, laser=laser, f=str(rgb_path), n=len(self.df))
+        output_dict = dict(rgb=rgb, gt=gt, laser=laser, rgb_path=rgb_path, 
+                           gt_path=gt_path, laser_path=laser_file, n=len(self.df))
 
         return output_dict
     
