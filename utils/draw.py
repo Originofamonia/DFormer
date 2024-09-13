@@ -1,7 +1,7 @@
 import os
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
-import pathlib
+import pickle
 import matplotlib as mpl
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -88,11 +88,135 @@ def compare_inferred_masks():
     prs.save(f'output/pptx/different_models.pptx')
 
 
-def draw_few_shot():
+def draw_selected_0912():
     """
     TODO: random 1 row from df1 as query and random 1 row from df2 as support
     """
-    pass
+    model_paths = ['epoch-3_miou_92', 'epoch-5_miou_95']
+    colors = ['#00000000', 'lime']
+    cmap = ListedColormap(colors)
+    dpi = 200
+    sector_left = -45 #-135
+    sector_right = 45 # 135
+    angle_min = -26
+    angle_max = 36
+    angle_rad_min = np.deg2rad(angle_min)
+    angle_rad_max = np.deg2rad(angle_max)
+    min_pct = (angle_min+45)/90  # percentile for cropping
+    max_pct = (angle_max+45)/90
+    prs = Presentation()
+    blank_slide_layout = prs.slide_layouts[6]
+    slide = prs.slides.add_slide(blank_slide_layout)
+    left = top = Inches(0.1)
+    top_2 = Inches(6)
+    width = Inches(14.0)
+    height = Inches(1.2)
+    alpha = 0.5
+    positives = [
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556012529532663.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556012529532663.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556009401066296.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661555916477569811.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556145691092960.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556022048261635.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661555874275943510.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556030035881989.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/positive/images/1661556172449825279.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661555934549742691.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/positive/images/1661555950491830103.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556184664382450.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556017621751062.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556310770125381.jpg',
+    '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556188525106661.jpg',
+    ]
+    # negatives = [
+    # '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556043648338549.jpg',
+    # ]
+
+    df1 = pd.read_csv(f'datasets/trav/df1.csv', index_col=0)  # s_imgs
+    df2 = pd.read_csv(f'datasets/trav/df2.csv', index_col=0)
+
+    for q_file in positives:
+        img_id = q_file.split('/')[-1].strip('.jpg')
+        q_gt_path = q_file.replace('/images/', '/labels/')
+        q_gt_file = os.path.splitext(q_gt_path)[0] + '.npy'
+        ep_3_filename = f'output/{model_paths[0]}/{img_id}.npy'
+        ep_5_filename = f'output/{model_paths[1]}/{img_id}.npy'
+        # q_files
+        q_img = plt.imread(q_file)
+        q_target = np.load(q_gt_file)
+        q_laser_file = df2.loc[df2['img'] == q_file, 'laser'].values[0]
+        with open(q_laser_file, 'rb') as q_f:
+            data = pickle.load(q_f)
+            q_laser = np.array(data['ranges'][::-1])[540:900]
+        # s_files
+        s_row = df1.sample(n=1)
+        s_file, s_laser_file = s_row['img'].values[0], s_row['laser'].values[0]
+        s_gt_path = s_file.replace('/images/', '/labels/')
+        s_gt_file = os.path.splitext(s_gt_path)[0] + '.npy'
+        with open(s_laser_file, 'rb') as s_f:
+            data = pickle.load(s_f)
+            s_laser = np.array(data['ranges'][::-1])[540:900]
+        s_img = plt.imread(s_file)
+        s_target = np.load(s_gt_file)
+        ep3 = np.load(ep_3_filename)
+        ep5 = np.load(ep_5_filename)
+        slide = prs.slides.add_slide(blank_slide_layout)
+        # s_img+s_tg, q_img+q_tg, q_before (ep3)
+        # s_depth, q_depth, q_after (ep5)
+        fig, axs = plt.subplots(2, 3, figsize=(14, 6))  # w,h
+        axs[0,0].imshow(s_img)
+        axs[0,0].imshow(s_target, cmap=cmap, alpha=alpha)
+        axs[0,0].set_title(f's_img')
+        axs[0,0].axis('off')
+
+        angles = np.linspace(np.deg2rad(sector_left), np.deg2rad(sector_right), len(s_laser), endpoint=False)
+        axs[1,0] = plt.subplot(234, projection='polar')
+        axs[1,0].plot(angles, s_laser)
+        axs[1,0].plot([angle_rad_max, angle_rad_max], [0, 5.1], color='red', linestyle='--')
+        axs[1,0].plot([angle_rad_min, angle_rad_min], [0, 5.1], color='blue', linestyle='--')
+        axs[1,0].set_thetamin(sector_left)
+        axs[1,0].set_thetamax(sector_right)
+        axs[1,0].set_theta_zero_location('N')
+        axs[1,0].set_title(f"s_depth")
+        axs[1,0].set_xticks(np.pi/180. * np.linspace(sector_left, sector_right, 10, endpoint=False))
+        axs[1,0].figure.axes[3].set_axis_off()
+
+        axs[0,1].imshow(q_img)
+        axs[0,1].imshow(q_target, cmap=cmap, alpha=alpha)
+        axs[0,1].set_title(f'q_img')
+        axs[0,1].axis('off')
+
+        angles = np.linspace(np.deg2rad(sector_left), np.deg2rad(sector_right), len(q_laser), endpoint=False)
+        axs[1,1] = plt.subplot(235, projection='polar')
+        axs[1,1].plot(angles, q_laser)
+        axs[1,1].plot([angle_rad_max, angle_rad_max], [0, 5.1], color='red', linestyle='--')
+        axs[1,1].plot([angle_rad_min, angle_rad_min], [0, 5.1], color='blue', linestyle='--')
+        axs[1,1].set_thetamin(sector_left)
+        axs[1,1].set_thetamax(sector_right)
+        axs[1,1].set_theta_zero_location('N')
+        axs[1,1].set_title(f"q_depth")
+        axs[1,1].set_xticks(np.pi/180. * np.linspace(sector_left, sector_right, 10, endpoint=False))
+        axs[1,1].figure.axes[4].set_axis_off()
+
+        axs[0,2].imshow(q_img)
+        axs[0,2].imshow(ep3, cmap=cmap, alpha=alpha)
+        axs[0,2].set_title(f'q_before')
+        axs[0,2].axis('off')
+
+        axs[1,2].imshow(q_img)
+        axs[1,2].imshow(ep5, cmap=cmap, alpha=alpha)
+        axs[1,2].set_title(f'q_after')
+        axs[1,2].axis('off')
+
+        plt.subplots_adjust(hspace=0.15, wspace=0.01)
+        img_filename = f'output/0912/{img_id}.png'
+        fig.savefig(img_filename,bbox_inches='tight', pad_inches=0.01, dpi=dpi)
+        plt.close()
+        pic = slide.shapes.add_picture(img_filename, left, top)
+
+    prs.save(f'output/pptx/0912.pptx')
 
 if __name__ == '__main__':
-    compare_inferred_masks()
+    # compare_inferred_masks()
+    draw_selected_0912()

@@ -154,7 +154,7 @@ class TravRGBDDataset(Dataset):
         self.df = self._get_file_names(split_name)
         # self._file_length = file_length
         self.transform = transform
-    
+
     def _get_file_names(self, split_name):
         if split_name == 'train':
             df = pd.read_csv(self._train_source, index_col=0)
