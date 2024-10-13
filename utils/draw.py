@@ -102,8 +102,6 @@ def draw_selected_0912():
     angle_max = 36
     angle_rad_min = np.deg2rad(angle_min)
     angle_rad_max = np.deg2rad(angle_max)
-    min_pct = (angle_min+45)/90  # percentile for cropping
-    max_pct = (angle_max+45)/90
     prs = Presentation()
     blank_slide_layout = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank_slide_layout)
@@ -217,6 +215,60 @@ def draw_selected_0912():
 
     prs.save(f'output/pptx/0912.pptx')
 
+
+def draw_arch_sucai():
+    """
+    Need q_img, q_depth, q_mask/q_pred
+    """
+    # colors = ['#00000000', 'lime']
+    colors = ['darkgray', 'lime']
+    cmap = ListedColormap(colors)
+    alpha = 0.8
+    dpi = 200
+    sector_left = -45 #-135
+    sector_right = 45 # 135
+    angle_min = -26
+    angle_max = 36
+    angle_rad_min = np.deg2rad(angle_min)
+    angle_rad_max = np.deg2rad(angle_max)
+    df2 = pd.read_csv(f'datasets/trav/df2.csv', index_col=0)
+    q_file = '/home/qiyuan/2023spring/segmentation_indoor_images/uc/challenging/images/1661556184664382450.jpg'
+    img_id = q_file.split('/')[-1].strip('.jpg')
+    q_gt_path = q_file.replace('/images/', '/labels/')
+    q_gt_file = os.path.splitext(q_gt_path)[0] + '.npy'
+    # q_img = plt.imread(q_file)
+    q_target = np.load(q_gt_file)
+    # q_laser_file = df2.loc[df2['img'] == q_file, 'laser'].values[0]
+    # with open(q_laser_file, 'rb') as q_f:
+    #     data = pickle.load(q_f)
+    #     q_laser = np.array(data['ranges'][::-1])[540:900]
+    # angles = np.linspace(np.deg2rad(sector_left), np.deg2rad(sector_right), len(q_laser), endpoint=False)
+    # fig, axs = plt.subplots(1, 1, figsize=(4, 3))
+    # axs[0,0] = plt.subplot(111, projection='polar')
+    # axs[0,0].plot(angles, q_laser)
+    # axs[0,0].plot([angle_rad_max, angle_rad_max], [0, 5.1], color='red', linestyle='--')
+    # axs[0,0].plot([angle_rad_min, angle_rad_min], [0, 5.1], color='blue', linestyle='--')
+    # axs[0,0].set_thetamin(sector_left)
+    # axs[0,0].set_thetamax(sector_right)
+    # axs[0,0].set_theta_zero_location('N')
+    # # axs[0,0].set_title(f"s_depth")
+    # axs[0,0].set_xticks(np.pi/180. * np.linspace(sector_left, sector_right, 10, endpoint=False))
+    # axs[0,0].figure.axes[0].set_axis_off()
+
+    # Plot the image
+    # plt.imshow(array_2d, cmap='gray', interpolation='none')
+    
+    plt.imshow(q_target, cmap=cmap, alpha=alpha)
+    # Remove axis and borders
+    plt.axis('off')  # Hides the axis
+    plt.gca().set_position([0, 0, 1, 1])  # Removes padding around the image
+    img_filename = f'output/0912/{img_id}_mask.png'
+    plt.savefig(img_filename,bbox_inches='tight',pad_inches=0.0, dpi=dpi)
+    plt.close()
+    
+
+
 if __name__ == '__main__':
     # compare_inferred_masks()
-    draw_selected_0912()
+    # draw_selected_0912()
+    draw_arch_sucai()
