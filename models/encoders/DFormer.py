@@ -251,7 +251,7 @@ class DFormer(BaseModule):
         #     layer_name = f'norm{i}'
         #     self.add_module(layer_name, layer)
 
-    def init_weights(self,pretrained):
+    def init_weights(self, pretrained):
         _state_dict=torch.load(pretrained)
         if 'state_dict_ema' in _state_dict.keys():
             _state_dict=_state_dict['state_dict_ema']
@@ -280,10 +280,10 @@ class DFormer(BaseModule):
         # x_e.shape: [1, 8, 1, 360]
         x_e = x_e[:,0,:,:].unsqueeze(1)
         # TODO: add MLP(x_e) here
-        x_e = self.stem_e_fc1(x_e)
-        x_e = x_e.permute(0, 1, 3, 2)
-        x_e = self.stem_e_fc2(x_e)
-        x_e = x_e.permute(0, 1, 3, 2)  # [B, 1, 480, 640]
+        # x_e = self.stem_e_fc1(x_e)
+        # x_e = x_e.permute(0, 1, 3, 2)
+        # x_e = self.stem_e_fc2(x_e)
+        # x_e = x_e.permute(0, 1, 3, 2)  # [B, 1, 480, 640]
 
         outs = []
         for i in range(4):

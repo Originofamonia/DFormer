@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
-from torchvision import io
+# from torchvision import io
 
 class RGBXDataset(Dataset):
     def __init__(self, setting, split_name, preprocess=None, file_length=None):
@@ -37,19 +37,20 @@ class RGBXDataset(Dataset):
         else:
             item_name = self._file_names[index]
 
-        temp_index=item_name.find("/")
+        # temp_index=item_name.find("/")
+        # item_name=item_name[temp_index+1:].split(self._rgb_format)[0]
 
-        item_name=item_name[temp_index+1:].split(self._rgb_format)[0]
-        # item_name = item_name.split(" ")
-        # item_name[-1]=item_name[-1].replace("\n","")
-            
-        rgb_path = os.path.join(self._rgb_path, item_name.replace('.jpg','').replace('.png','') + self._rgb_format)
-        x_path = os.path.join(self._x_path, item_name.replace('.jpg','').replace('.png','')  + self._x_format)
-        gt_path = os.path.join(self._gt_path, item_name.replace('.jpg','').replace('.png','')  + self._gt_format)
-
-        # rgb_path = os.path.join(self._rgb_path, item_name[0].replace("rgb/",""))
-        # x_path = os.path.join(self._x_path, item_name[1].replace("depth/",""))
-        # gt_path = os.path.join(self._gt_path, item_name[2].replace("label/",""))
+        # trav    
+        # rgb_path = os.path.join(self._rgb_path, item_name.replace('.jpg','').replace('.png','') + self._rgb_format)
+        # x_path = os.path.join(self._x_path, item_name.replace('.jpg','').replace('.png','')  + self._x_format)
+        # gt_path = os.path.join(self._gt_path, item_name.replace('.jpg','').replace('.png','')  + self._gt_format)
+        
+        # NYUv2
+        item_name = item_name.split("\t")
+        item_name[-1]=item_name[-1].replace("\n","")  # in case trailing \n
+        rgb_path = os.path.join(self._rgb_path, item_name[0].replace("RGB/",""))
+        x_path = os.path.join(self._x_path, item_name[1].replace("Label/",""))
+        gt_path = os.path.join(self._gt_path, item_name[1].replace("Label/",""))
 
         rgb = self._open_image(rgb_path, cv2.COLOR_BGR2RGB)
 
@@ -66,15 +67,11 @@ class RGBXDataset(Dataset):
         if self.preprocess is not None:
             rgb, gt, x = self.preprocess(rgb, gt, x)
 
-        # if self._split_name == 'train':
         rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()  # [3, 480, 640]
         gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
         x = torch.from_numpy(np.ascontiguousarray(x)).float()  # [3, 480, 640]
-        # else:
-        #     rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()
-        #     gt = torch.from_numpy(np.ascontiguousarray(gt)).long()
-        #     x = torch.from_numpy(np.ascontiguousarray(x)).float()
-        output_dict = dict(data=rgb, label=gt, modal_x=x, fn=str(item_name), n=len(self._file_names))
+
+        output_dict = dict(rgb=rgb, gt=gt, modal_x=x, fn=str(item_name), n=len(self._file_names))
 
         return output_dict
 

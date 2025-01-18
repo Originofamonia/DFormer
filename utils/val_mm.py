@@ -1,9 +1,9 @@
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
 import pathlib
-import matplotlib as mpl
-from pptx import Presentation
-from pptx.util import Inches, Pt
+# import matplotlib as mpl
+# from pptx import Presentation
+# from pptx.util import Inches, Pt
 import torch
 import argparse
 import yaml
@@ -55,7 +55,7 @@ def save_preds(model, dataloader, config, device, engine, model_path=None, slidi
         else:
             preds = model(rgb[0], rgb[1]).softmax(dim=1)
         
-        B, H, W = gt.shape
+        # B, H, W = gt.shape
         metrics.update(preds, gt)
         
         palette = [
@@ -301,7 +301,7 @@ def evaluate_msf(
             print(f"Validation Iter: {idx + 1} / {len(dataloader)}")
         rgb = batch["rgb"]
         gt = batch["gt"]
-        laser = batch["laser"]
+        laser = batch["modal_x"]
         # images = minibatch["data"]
         # labels = minibatch["label"]
         # modal_xs = minibatch["modal_x"]

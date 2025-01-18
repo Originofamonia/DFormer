@@ -18,7 +18,7 @@ from models.builder import EncoderDecoder as segmodel
 from utils.dataloader.RGBXDataset import RGBXDataset
 
 from utils.init_func import group_weight
-from utils.init_func import configure_optimizers
+# from utils.init_func import configure_optimizers
 from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
@@ -286,7 +286,7 @@ with Engine(custom_parser=parser) as engine:
     eval_timer = gpu_timer()
 
     if args.amp:
-        scaler = torch.cuda.amp.GradScaler()
+        scaler = torch.amp.GradScaler()
     for epoch in range(engine.state.epoch, config.nepochs + 1):
         model = compiled_model
         model.train()
@@ -306,12 +306,12 @@ with Engine(custom_parser=parser) as engine:
         sum_loss = 0
         i = 0
         train_timer.start()
-        for idx, minibatch in enumerate(train_loader):
+        for idx, batch in enumerate(train_loader):
             engine.update_iteration(epoch, idx)
 
-            imgs = minibatch["data"]
-            gts = minibatch["label"]
-            modal_xs = minibatch["modal_x"]
+            imgs = batch["rgb"]
+            gts = batch["gt"]
+            modal_xs = batch["modal_x"]
 
             imgs = imgs.cuda(non_blocking=True)
             gts = gts.cuda(non_blocking=True)
