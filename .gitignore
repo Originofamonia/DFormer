@@ -174,3 +174,4 @@ eval*.sh
 models/decoders/near_far.py
 **/*_temp*
 *rgbdnew*
+checkpoints/*

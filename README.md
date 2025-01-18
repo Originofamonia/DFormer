@@ -78,15 +78,15 @@ We invite all to contribute in making it more acessible and useful. If you have 
 **0. Install**
 
 ```bash
-conda create -n dformer python=3.10 -y
+conda create -n dformer python=3.12 -y
 conda activate dformer
 
-# CUDA 11.8
-conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=11.8 -c pytorch -c nvidia
+# CUDA 12.4
+conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia
 
-pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.1/index.html
+pip install mmcv
 
-pip install tqdm opencv-python scipy tensorboardX tabulate easydict ftfy regex
+pip install tqdm opencv-python scipy tensorboardX tabulate easydict ftfy regex pandas python-pptx
 ```
 
 
