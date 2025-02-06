@@ -2,8 +2,8 @@ from .._base_.datasets.Trav import *
 
 """ Settings for network, this would be different for each kind of model"""
 C.dataset_name = "NYUDepthv2"
-C.dataset_path = osp.join(C.root_dir, "NYUDepthv2")
-C.backbone = "DFormer-Base"  # Remember change the path below.
+C.dataset_path = '/home/edward/data/trav'
+C.backbone = "DFormerTrav-Base"  # Remember change the path below.
 C.pretrained_model = "checkpoints/pretrained/DFormer_Base.pth.tar"
 C.decoder = "ham"
 C.decoder_embed_dim = 512
@@ -14,10 +14,10 @@ C.lr = 6e-5
 C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 0.01
-C.batch_size = 8
+C.batch_size = 6
 C.nepochs = 200
 C.niters_per_epoch = C.num_train_imgs // C.batch_size + 1
-C.num_workers = 8
+C.num_workers = 6
 C.train_scale_array = [0.5, 0.75, 1, 1.25, 1.5, 1.75]
 C.warm_up_epoch = 10
 
@@ -36,7 +36,7 @@ C.eval_crop_size = [480, 640]  # [height weight]
 
 """Store Config"""
 C.checkpoint_start_epoch = 250
-C.checkpoint_step = 25
+C.checkpoint_step = 5
 
 """Path Config"""
 C.log_dir = osp.abspath("checkpoints/trained/trav/" + C.backbone)

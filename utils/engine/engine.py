@@ -10,7 +10,7 @@ import torch.distributed as dist
 from .logger import get_logger
 from utils.pyt_utils import (
     load_model,
-    parse_devices,
+    # parse_devices,
     extant_file,
     link_file,
     ensure_dir,
@@ -66,7 +66,7 @@ class Engine(object):
             self.devices = [0, 1]  # [i for i in range(self.world_size)]
         else:
             # self.local_rank = int(os.environ['LOCAL_RANK'])
-            self.devices = [0, 1]  # parse_devices(self.args.devices)
+            self.devices = self.args.device  # parse_devices(self.args.devices)
 
         self.checkpoint_state = []
 

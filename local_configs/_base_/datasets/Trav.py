@@ -10,7 +10,7 @@ from local_configs._base_ import *
 # Dataset config
 """Dataset Path"""
 C.dataset = f'Trav'
-C.root_dir = f'/home/qiyuan/2024fall/DFormer/datasets/trav'
+C.root_dir = '/home/edward/data/trav'
 C.scenes = ['erb', 'uc', 'wh']
 C.dataset_path = osp.join(C.root_dir)  #  "NYUDepthv2"
 C.rgb_root_folder = osp.join(C.dataset_path, "RGB")
@@ -22,9 +22,9 @@ C.gt_transform = False
 # True for most dataset valid, False for MFNet(?)
 C.x_root_folder = osp.join(C.dataset_path, "Depth")
 C.x_format = ".png"
-C.x_is_single_channel = (
-    True  # True for raw depth, thermal and aolp/dolp(not aolp/dolp tri) input
-)
+C.x_is_single_channel = True
+# True for raw depth, thermal and aolp/dolp(not aolp/dolp tri) input
+
 C.train_source = osp.join(C.dataset_path, "df1.csv")
 C.eval_source = osp.join(C.dataset_path, "df2.csv")
 C.is_test = True
@@ -89,6 +89,35 @@ def calc_depth_mean_std():
     print(f'mean: {overall_mean}, std: {overall_std}')  # 3.712411900604355, 1.4213359933145486
 
 
+def update_path(path, new_base, level):
+    parts = path.split(os.path.sep)
+    last_parts = os.path.join(*parts[-level:])
+    return os.path.join(new_base, last_parts)
+
+
+def rename_path_csv():
+    """
+    rename df1 and df2's filepaths
+    old:
+    img: /home/qiyuan/2023spring/segmentation_indoor_images/uc/positive/images/1661556423196969025.jpg
+    depth: /data/zak/robot/extracted/uc/8_26/front_laser/1661556423178211711.pkl
+    new:
+    img: /home/edward/data/segmentation_indoor_images
+    depth: /home/edward/data/extracted
+    """
+    img_base = "/home/edward/data/segmentation_indoor_images"
+    depth_base = '/home/edward/data/extracted'
+    dfs = ['df1.csv', 'df2.csv']
+    for df_file in dfs:
+        df_path = os.path.join(C.dataset_path, df_file)
+        df = pd.read_csv(df_path, index_col=0)
+        df['laser'] = df['laser'].apply(lambda x: update_path(x, depth_base, 4))
+        df['img'] = df['img'].apply(lambda x: update_path(x, img_base, 4))
+        df = df.rename(columns={'laser': 'depth'})
+        df.to_csv(df_path)
+
+
 if __name__ == '__main__':
     # rename_path()
-    calc_depth_mean_std()
+    # calc_depth_mean_std()
+    rename_path_csv()

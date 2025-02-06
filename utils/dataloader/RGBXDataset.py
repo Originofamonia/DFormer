@@ -167,7 +167,7 @@ class TravRGBDDataset(Dataset):
         rgb_path = row['img']
         gt_path = rgb_path.replace('/images/', '/labels/')
         gt_file = os.path.splitext(gt_path)[0] + '.npy'
-        laser_file = row['laser']
+        laser_file = row['depth']
 
         # rgb = io.read_image(rgb_path)
         # gt = io.read_image(gt_file)

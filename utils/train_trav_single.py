@@ -18,7 +18,7 @@ from models.builder import EncoderDecoder as segmodel
 from utils.dataloader.RGBXDataset import TravRGBDDataset
 
 from utils.init_func import group_weight
-from utils.init_func import configure_optimizers
+# from utils.init_func import configure_optimizers
 from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
@@ -31,11 +31,11 @@ from utils.val_mm import evaluate, evaluate_msf
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=f'local_configs.Trav.DFormer_Base', type=str, help="train config file path")
 parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
-# parser.add_argument('-d', '--devices', default='0,1', type=str)
+parser.add_argument('--device', type=str, default='cuda:0')  # Change to 'cuda:1' for GPU 1
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
 parser.add_argument("--epochs", default=0)
 parser.add_argument("--show_image", "-s", default=False, action="store_true")
-# parser.add_argument("--save_path", default=None)
+# parser.add_argument("--save_path", type=str, default='')
 parser.add_argument("--checkpoint_dir")
 parser.add_argument("--continue_fpath")
 parser.add_argument("--sliding", default=False, action=argparse.BooleanOptionalAction)
@@ -191,12 +191,6 @@ with Engine(custom_parser=parser) as engine:
         norm_layer=BatchNorm2d,
         syncbn=args.syncbn,
     )
-    # weight=torch.load('checkpoints/NYUv2_DFormer_Large.pth')['model']
-    # w_list=list(weight.keys())
-    # # for k in w_list:
-    # #     weight[k[7:]] = weight[k]
-    # print('load model')
-    # model.load_state_dict(weight)
 
     base_lr = config.lr
     if engine.distributed:
@@ -204,7 +198,6 @@ with Engine(custom_parser=parser) as engine:
 
     params_list = []
     params_list = group_weight(params_list, model, BatchNorm2d, base_lr)
-    # params_list = configure_optimizers(model, base_lr, config.weight_decay)
 
     if config.optimizer == "AdamW":
         optimizer = torch.optim.AdamW(
@@ -273,7 +266,7 @@ with Engine(custom_parser=parser) as engine:
     #                                 config.norm_std, None,
     #                                 config.eval_scale_array, config.eval_flip,
     #                                 all_dev, config,args.verbose, args.save_path,args.show_image)
-    uncompiled_model = model
+    # uncompiled_model = model
     if args.compile:
         compiled_model = torch.compile(
             model, backend="inductor", mode=args.compile_mode
@@ -285,7 +278,7 @@ with Engine(custom_parser=parser) as engine:
     eval_timer = gpu_timer()
 
     if args.amp:
-        scaler = torch.cuda.amp.GradScaler()
+        scaler = torch.amp.GradScaler()
     for epoch in range(engine.state.epoch, config.nepochs + 1):
         model = compiled_model
         model.train()

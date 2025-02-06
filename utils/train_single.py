@@ -1,3 +1,8 @@
+"""
+NYUDepthv2.DFormer_Base
+Not sure why always use GPU 1
+"""
+
 import os
 import sys
 import pprint
@@ -7,10 +12,10 @@ import argparse
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn.parallel import DistributedDataParallel
+# from torch.nn.parallel import DistributedDataParallel
 from tensorboardX import SummaryWriter
 from importlib import import_module
-import datetime
+from datetime import timedelta, datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.dataloader.dataloader import get_train_loader, get_val_loader
@@ -30,8 +35,8 @@ from utils.val_mm import evaluate, evaluate_msf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=f'local_configs.NYUDepthv2.DFormer_Base', type=str, help="train config file path")
-parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
-# parser.add_argument('-d', '--devices', default='0,1', type=str)
+parser.add_argument("--gpus", default=1, type=int, help="used gpu number")
+parser.add_argument('--device', type=str, default='cuda:0')  # Change to 'cuda:1' for GPU 1
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
 parser.add_argument("--epochs", default=0)
 parser.add_argument("--show_image", "-s", default=False, action="store_true")
@@ -54,7 +59,7 @@ parser.add_argument("--local-rank", default=0, type=int)
 torch.set_float32_matmul_precision("high")
 import torch._dynamo
 
-torch._dynamo.config.suppress_errors = True
+# torch._dynamo.config.suppress_errors = True
 # torch._dynamo.config.automatic_dynamic_shapes = False
 
 
@@ -153,7 +158,7 @@ with Engine(custom_parser=parser) as engine:
     else:
         val_dl_factor = 1.5
 
-    val_dl_factor = 1 # TODO: remove this line
+    # val_dl_factor = 1 # TODO: remove this line
 
     val_loader, val_sampler = get_val_loader(
         engine,
@@ -200,8 +205,8 @@ with Engine(custom_parser=parser) as engine:
     # model.load_state_dict(weight)
 
     base_lr = config.lr
-    if engine.distributed:
-        base_lr = config.lr
+    # if engine.distributed:
+    #     base_lr = config.lr
 
     params_list = []
     params_list = group_weight(params_list, model, BatchNorm2d, base_lr)
@@ -231,19 +236,19 @@ with Engine(custom_parser=parser) as engine:
         total_iteration,
         config.niters_per_epoch * config.warm_up_epoch,
     )
-    if engine.distributed:
-        logger.info(".............distributed training.............")
-        if torch.cuda.is_available():
-            model.cuda()
-            model = DistributedDataParallel(
-                model,
-                device_ids=[engine.local_rank],
-                output_device=engine.local_rank,
-                find_unused_parameters=False,
-            )
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model.to(device)
+    # if engine.distributed:
+    #     logger.info(".............distributed training.............")
+    #     if torch.cuda.is_available():
+    #         model.cuda()
+    #         model = DistributedDataParallel(
+    #             model,
+    #             device_ids=[engine.local_rank],
+    #             output_device=engine.local_rank,
+    #             find_unused_parameters=False,
+    #         )
+    # else:
+    device = args.device if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
 
     engine.register_state(dataloader=train_loader, model=model, optimizer=optimizer)
     if engine.continue_state_object:
@@ -274,7 +279,7 @@ with Engine(custom_parser=parser) as engine:
     #                                 config.norm_std, None,
     #                                 config.eval_scale_array, config.eval_flip,
     #                                 all_dev, config,args.verbose, args.save_path,args.show_image)
-    uncompiled_model = model
+    # uncompiled_model = model
     if args.compile:
         compiled_model = torch.compile(
             model, backend="inductor", mode=args.compile_mode
@@ -397,7 +402,7 @@ with Engine(custom_parser=parser) as engine:
             if engine.distributed:
                 with torch.no_grad():
                     model.eval()
-                    device = torch.device("cuda")
+                    device = args.device
                     if args.val_amp:
                         with torch.autocast(device_type="cuda", dtype=torch.float16):
                             if args.mst:
@@ -461,7 +466,7 @@ with Engine(custom_parser=parser) as engine:
             elif not engine.distributed:
                 with torch.no_grad():
                     model.eval()
-                    device = torch.device("cuda")
+                    device = args.device
                     if args.val_amp:
                         with torch.autocast(device_type="cuda", dtype=torch.float16):
                             if args.mst:
@@ -535,7 +540,7 @@ with Engine(custom_parser=parser) as engine:
             + eval_timer.mean_time * eval_count
         )
         eta = (
-            datetime.datetime.now() + datetime.timedelta(seconds=left_time)
+            datetime.now() + timedelta(seconds=left_time)
         ).strftime("%Y-%m-%d %H:%M:%S")
         logger.info(
             f"Avg train time: {train_timer.mean_time:.2f}s, avg eval time: {eval_timer.mean_time:.2f}s, left eval count: {eval_count}, ETA: {eta}"

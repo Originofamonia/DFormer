@@ -1,4 +1,4 @@
-import torch
+# import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -77,6 +77,9 @@ class EncoderDecoder(nn.Module):
         elif cfg.backbone == 'DFormer-Tiny':
             from .encoders.DFormer import DFormer_Tiny as backbone
             self.channels=[32, 64, 128, 256]
+        elif cfg.backbone == 'DFormerTrav-Base':
+            from .encoders.DFormer import get_DFormerTrav as backbone
+            self.channels=[64, 128, 256, 512]
 
         if syncbn:
             norm_cfg=dict(type='SyncBN', requires_grad=True)

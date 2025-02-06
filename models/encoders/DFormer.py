@@ -1,7 +1,7 @@
-import warnings
+# import warnings
 from collections import OrderedDict
-from copy import deepcopy
-from functools import partial
+# from copy import deepcopy
+# from functools import partial
 
 import torch
 import torch.nn as nn
@@ -16,7 +16,7 @@ from mmcv.cnn.bricks.transformer import FFN, build_dropout
 from mmengine.model.base_module import BaseModule
 from mmengine.runner.checkpoint import load_state_dict
 # from mmcv.utils import to_2tuple
-import math
+# import math
 
 class LayerNorm(nn.Module):
     r""" LayerNorm that supports two data formats: channels_last (default) or channels_first. 
@@ -67,7 +67,7 @@ class MLP(nn.Module):
         return x
 
 
-class attention(nn.Module):
+class Attention(nn.Module):
     def __init__(self, dim, num_head=8, window=7, norm_cfg=dict(type='SyncBN', requires_grad=True),drop_depth=False):
         super().__init__()
         self.num_head = num_head
@@ -152,7 +152,7 @@ class Block(nn.Module):
         layer_scale_init_value = 1e-6  
         if block_index>last_block_index:
             window=0 
-        self.attn = attention(dim, num_head, window=window, norm_cfg=norm_cfg,drop_depth=drop_depth)
+        self.attn = Attention(dim, num_head, window=window, norm_cfg=norm_cfg,drop_depth=drop_depth)
         self.mlp = MLP(dim, mlp_ratio, norm_cfg=norm_cfg)
         self.dropout_layer = build_dropout(dropout_layer) if dropout_layer else torch.nn.Identity()
                  
@@ -252,7 +252,7 @@ class DFormer(BaseModule):
         #     self.add_module(layer_name, layer)
 
     def init_weights(self, pretrained):
-        _state_dict=torch.load(pretrained)
+        _state_dict = torch.load(pretrained, weights_only=False)
         if 'state_dict_ema' in _state_dict.keys():
             _state_dict=_state_dict['state_dict_ema']
         else:
@@ -299,6 +299,128 @@ class DFormer(BaseModule):
             outs.append(x)
         return outs,None
 
+
+class DFormerTrav(BaseModule):
+    def __init__(self, depths=(2, 2, 8, 2), dims=(32, 64, 128, 256), 
+        out_indices=(0, 1, 2, 3), windows=[7, 7, 7, 7], 
+        norm_cfg=dict(type='SyncBN', requires_grad=True),
+        mlp_ratios=[8, 8, 4, 4], num_heads=(2, 4, 10, 16), last_block=[50,50,50,50], 
+        drop_path_rate=0.1, init_cfg=None):
+        super().__init__()
+        print(drop_path_rate)
+        self.depths = depths
+        self.init_cfg = init_cfg
+        self.out_indices = out_indices
+        self.downsample_layers = nn.ModuleList() 
+        stem = nn.Sequential(
+                nn.Conv2d(3, dims[0] // 2, kernel_size=3, stride=2, padding=1),
+                nn.BatchNorm2d(dims[0] // 2),
+                nn.GELU(),
+                nn.Conv2d(dims[0] // 2, dims[0], kernel_size=3, stride=2, padding=1),
+                nn.BatchNorm2d(dims[0]),
+        )
+        # TODO: Add MLP layers for x_e
+        self.stem_e_fc1 = nn.Linear(360, 640)
+        self.stem_e_fc2 = nn.Linear(1, 480)
+        self.downsample_layers_e = nn.ModuleList() 
+        stem_e = nn.Sequential(
+                nn.Conv2d(1, dims[0] // 4, kernel_size=3, stride=2, padding=1),
+                nn.BatchNorm2d(dims[0] // 4),
+                nn.GELU(),
+                nn.Conv2d(dims[0] // 4, dims[0]//2, kernel_size=3, stride=2, padding=1),
+                nn.BatchNorm2d(dims[0]//2),
+        )
+
+        self.downsample_layers.append(stem)
+        self.downsample_layers_e.append(stem_e)
+
+        for i in range(len(dims)-1):
+            stride = 2
+            downsample_layer = nn.Sequential(
+                    build_norm_layer(norm_cfg, dims[i])[1],
+                    nn.Conv2d(dims[i], dims[i+1], kernel_size=3, stride=stride, padding=1),
+            )
+            self.downsample_layers.append(downsample_layer)
+
+            downsample_layer_e = nn.Sequential(
+                    build_norm_layer(norm_cfg, dims[i]//2)[1],
+                    nn.Conv2d(dims[i]//2, dims[i+1]//2, kernel_size=3, stride=stride, padding=1),
+            )
+            self.downsample_layers_e.append(downsample_layer_e)
+
+        self.stages = nn.ModuleList()
+        dp_rates=[x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))] 
+        cur = 0
+        for i in range(len(dims)):
+            stage = nn.Sequential(
+                *[Block(index=cur+j, 
+                        dim=dims[i], 
+                        window=windows[i],
+                        dropout_layer=dict(type='DropPath', drop_prob=dp_rates[cur + j]), 
+                        num_head=num_heads[i], 
+                        norm_cfg=norm_cfg,
+                        block_index=depths[i]-j,
+                        last_block_index=last_block[i],
+                        mlp_ratio=mlp_ratios[i],drop_depth=((i==3)&(j==depths[i]-1))) for j in range(depths[i])]
+            )
+            self.stages.append(stage)
+            cur += depths[i]
+
+       
+        # for i in out_indices:
+        #     layer = LayerNorm(dims[i], eps=1e-6, data_format="channels_first")
+        #     layer_name = f'norm{i}'
+        #     self.add_module(layer_name, layer)
+
+    def init_weights(self, pretrained):
+        _state_dict = torch.load(pretrained, weights_only=False)
+        if 'state_dict_ema' in _state_dict.keys():
+            _state_dict=_state_dict['state_dict_ema']
+        else:
+            _state_dict=_state_dict['state_dict']
+
+        state_dict = OrderedDict()
+        for k, v in _state_dict.items():
+            if k.startswith('backbone.'):
+                state_dict[k[9:]] = v
+            else:
+                state_dict[k] = v
+        
+        if list(state_dict.keys())[0].startswith('module.'):
+            state_dict = {k[7:]: v for k, v in state_dict.items()}
+
+        load_state_dict(self, state_dict, strict=False)
+
+    def forward(self, x, x_e):
+        if x_e is None:
+            x_e = x
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
+        if len(x_e.shape) == 3:
+            x_e = x_e.unsqueeze(2)
+        # x_e.shape: [1, 8, 1, 360]
+        x_e = x_e[:,0,:,:].unsqueeze(1)
+        # TODO: add MLP(x_e) here
+        x_e = self.stem_e_fc1(x_e)
+        x_e = x_e.permute(0, 1, 3, 2)
+        x_e = self.stem_e_fc2(x_e)
+        x_e = x_e.permute(0, 1, 3, 2)  # [B, 1, 480, 640]
+
+        outs = []
+        for i in range(4):
+            x = self.downsample_layers[i](x)
+            x_e = self.downsample_layers_e[i](x_e)
+           
+            x = x.permute(0, 2, 3, 1)
+            x_e = x_e.permute(0, 2, 3, 1)
+            for blk in self.stages[i]:
+                x,x_e = blk(x, x_e)
+            x = x.permute(0, 3, 1, 2)
+            x_e = x_e.permute(0, 3, 1, 2)
+            outs.append(x)
+        return outs, None
+
+
 def DFormer_Tiny(pretrained=False, **kwargs):   # 81.5
     model = DFormer(dims=[32, 64, 128, 256], mlp_ratios=[8, 8, 4, 4], depths=[3, 3, 5, 2], num_heads=[1, 2, 4, 8], windows=[0, 7, 7, 7], **kwargs)
    
@@ -317,6 +439,15 @@ def DFormer_Small(pretrained=False, **kwargs):   # 81.0
 
 def DFormer_Base(pretrained=False,drop_path_rate=0.1, **kwargs):   # 82.1
     model = DFormer(dims=[64, 128, 256, 512], mlp_ratios=[8, 8, 4, 4], depths=[3, 3, 12, 2], 
+                    num_heads=[1, 2, 4, 8], windows=[0, 7, 7, 7],drop_path_rate=drop_path_rate, **kwargs)
+   
+    if pretrained:
+        model = load_model_weights(model, 'scnet', kwargs)
+    return model
+
+
+def get_DFormerTrav(pretrained=False,drop_path_rate=0.1, **kwargs):   # 82.1
+    model = DFormerTrav(dims=[64, 128, 256, 512], mlp_ratios=[8, 8, 4, 4], depths=[3, 3, 12, 2], 
                     num_heads=[1, 2, 4, 8], windows=[0, 7, 7, 7],drop_path_rate=drop_path_rate, **kwargs)
    
     if pretrained:
