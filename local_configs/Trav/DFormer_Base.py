@@ -15,9 +15,9 @@ C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 0.01
 C.batch_size = 6
-C.nepochs = 200
+C.nepochs = 150
 C.niters_per_epoch = C.num_train_imgs // C.batch_size + 1
-C.num_workers = 6
+C.num_workers = 4
 C.train_scale_array = [0.5, 0.75, 1, 1.25, 1.5, 1.75]
 C.warm_up_epoch = 10
 

@@ -1,63 +1,80 @@
-# import torch
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from utils.init_func import init_weight
-from utils.load_utils import load_pretrain
-from functools import partial
+# from utils.load_utils import load_pretrain
+# from functools import partial
 
 from utils.engine.logger import get_logger
-import warnings
-
-# from mmcv.cnn import MODELS as MMCV_MODELS
-# from mmcv.cnn.bricks.registry import ATTENTION as MMCV_ATTENTION
-# from mmcv.utils import Registry
-
-# MODELS = Registry('models', parent=MMCV_MODELS)
-# ATTENTION = Registry('attention', parent=MMCV_ATTENTION)
-
-# BACKBONES = MODELS
-# NECKS = MODELS
-# HEADS = MODELS
-# LOSSES = MODELS
-# SEGMENTORS = MODELS
-
-
-def build_backbone(cfg):
-    """Build backbone."""
-    return BACKBONES.build(cfg)
-
-
-def build_neck(cfg):
-    """Build neck."""
-    return NECKS.build(cfg)
-
-
-def build_head(cfg):
-    """Build head."""
-    return HEADS.build(cfg)
-
-
-def build_loss(cfg):
-    """Build loss."""
-    return LOSSES.build(cfg)
-
-
-def build_segmentor(cfg, train_cfg=None, test_cfg=None):
-    """Build segmentor."""
-    if train_cfg is not None or test_cfg is not None:
-        warnings.warn(
-            'train_cfg and test_cfg is deprecated, '
-            'please specify them in model', UserWarning)
-    assert cfg.get('train_cfg') is None or train_cfg is None, \
-        'train_cfg specified in both outer field and model field '
-    assert cfg.get('test_cfg') is None or test_cfg is None, \
-        'test_cfg specified in both outer field and model field '
-    return SEGMENTORS.build(
-        cfg, default_args=dict(train_cfg=train_cfg, test_cfg=test_cfg))
-
 
 logger = get_logger()
+
+
+class FewShotSegmentation(nn.Module):
+    def __init__(self, feature_extractor):
+        super(FewShotSegmentation, self).__init__()
+        self.encoder = feature_extractor  # Pretrained backbone
+    
+    def forward(self, support_images, support_masks, query_images):
+        # Extract support features
+        support_features = self.encoder(support_images)  # [B, C, H, W]
+        query_features = self.encoder(query_images)      # [B, C, H, W]
+        
+        # Compute class prototypes
+        prototypes = self.compute_prototypes(support_features, support_masks)
+        
+        # Compute similarity and classify query pixels
+        segmentation_map = self.match_prototypes(query_features, prototypes)
+        
+        return segmentation_map
+    
+    def compute_prototypes(self, features, masks):
+        """ Compute class-wise prototype vectors from support set. """
+        C = features.shape[1]  # Number of feature channels
+        prototypes = []
+        for c in range(1, masks.max() + 1):  # Ignore background (0)
+            mask = (masks == c).float()  # Binary mask for class c
+            prototype = (features * mask).sum(dim=(2,3)) / mask.sum(dim=(2,3))
+            prototypes.append(prototype)
+        return torch.stack(prototypes)  # [N_classes, C]
+    
+    def match_prototypes(self, query_features, prototypes):
+        """ Compute similarity between query features and prototypes """
+        B, C, H, W = query_features.shape
+        query_features = query_features.view(B, C, -1)  # Flatten to [B, C, HW]
+        
+        # Compute cosine similarity
+        similarities = F.cosine_similarity(query_features.unsqueeze(1), prototypes.unsqueeze(-1), dim=2)
+        segmentation_map = similarities.argmax(dim=1).view(B, H, W)  # Assign class with highest similarity
+        return segmentation_map
+
+
+class ContrastiveLoss(nn.Module):
+    def __init__(self, temperature=0.1):
+        super(ContrastiveLoss, self).__init__()
+        self.temperature = temperature
+
+    def forward(self, query_features, prototypes, labels):
+        """ Compute contrastive loss: Query pixels should match their correct prototype. """
+        B, C, H, W = query_features.shape
+        query_features = query_features.view(B, C, -1)  # [B, C, HW]
+        labels = labels.view(B, -1)  # [B, HW]
+        
+        similarities = F.cosine_similarity(query_features.unsqueeze(1), prototypes.unsqueeze(-1), dim=2)
+        
+        # Compute contrastive loss
+        pos_mask = torch.zeros_like(similarities)
+        for b in range(B):
+            pos_mask[b, labels[b], :] = 1  # Mark positive pairs
+        pos_similarity = (pos_mask * similarities).sum(dim=1) / pos_mask.sum(dim=1)
+        neg_similarity = ((1 - pos_mask) * similarities).sum(dim=1) / (1 - pos_mask).sum(dim=1)
+        
+        loss = -torch.log(torch.exp(pos_similarity / self.temperature) /
+                          (torch.exp(pos_similarity / self.temperature) +
+                           torch.exp(neg_similarity / self.temperature)))
+        return loss.mean()
+
 
 class EncoderDecoder(nn.Module):
     def __init__(self, cfg=None, criterion=nn.CrossEntropyLoss(reduction='none', ignore_index=255), norm_layer=nn.BatchNorm2d, syncbn=False):
@@ -167,15 +184,15 @@ class EncoderDecoder(nn.Module):
         # print('builder',rgb.shape,modal_x.shape)
         x = self.backbone(rgb, modal_x)
         if self.cfg.decoder == 'nl_near_far':
-            out = self.decode_head.forward(x[0], modal_x=modal_x)
-        else:
-            out = self.decode_head.forward(x[0])
+            out = self.decode_head.forward(x, modal_x=modal_x)
+        else:  # True
+            out = self.decode_head.forward(x)  # [B, 2, 60, 80]
         out = F.interpolate(out, size=orisize[-2:], mode='bilinear', align_corners=False)
-        if self.aux_head:
-            aux_fm = self.aux_head(x[0][self.aux_index])
+        if self.aux_head:  # None
+            aux_fm = self.aux_head(x[self.aux_index])
             aux_fm = F.interpolate(aux_fm, size=orisize[2:], mode='bilinear', align_corners=False)
             return out, aux_fm
-        return out
+        return out  # [B, 2, 480, 640]
 
     def forward(self, rgb, modal_x=None, label=None):
         # print('builder',rgb.shape,modal_x.shape)
@@ -183,9 +200,10 @@ class EncoderDecoder(nn.Module):
             out, aux_fm = self.encode_decode(rgb, modal_x)
         else:
             out = self.encode_decode(rgb, modal_x)
-        if label is not None:
+        if label is not None:  # train
             loss = self.criterion(out, label.long())[label.long() != self.cfg.background].mean()
             if self.aux_head:
                 loss += self.aux_rate * self.criterion(aux_fm, label.long())[label.long() != self.cfg.background].mean()
-            return loss
-        return out
+            return loss, out
+        else:  # eval
+            return out

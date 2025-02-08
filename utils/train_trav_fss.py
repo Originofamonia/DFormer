@@ -1,8 +1,3 @@
-"""
-NYUDepthv2.DFormer_Base
-Not sure why always use GPU 1
-"""
-
 import os
 import sys
 import pprint
@@ -12,59 +7,55 @@ import argparse
 import numpy as np
 import torch
 import torch.nn as nn
-# from torch.nn.parallel import DistributedDataParallel
+from torch.nn.parallel import DistributedDataParallel
 from tensorboardX import SummaryWriter
 from importlib import import_module
-from datetime import timedelta, datetime
+import datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.dataloader.dataloader import get_train_loader, get_val_loader
-from models.builder import EncoderDecoder as segmodel
-from utils.dataloader.RGBXDataset import RGBXDataset
+from models.builder import EncoderDecoder as segmodel, FewShotSegmentation, ContrastiveLoss
+from utils.dataloader.RGBXDataset import TravRGBDDataset
 
 from utils.init_func import group_weight
-# from utils.init_func import configure_optimizers
+
 from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
 from utils.pyt_utils import all_reduce_tensor
 from utils.val_mm import evaluate, evaluate_msf
-# from local_configs.NYUDepthv2.DFormer_Base import C
-# from eval import evaluate_mid
+
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--config", default=f'local_configs.NYUDepthv2.DFormer_Base', type=str, help="train config file path")
-parser.add_argument("--gpus", default=1, type=int, help="used gpu number")
+parser.add_argument("--config", default=f'local_configs.Trav.DFormer_Base', type=str, help="train config file path")
+parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
 parser.add_argument('--device', type=str, default='cuda:0')  # Change to 'cuda:1' for GPU 1
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
 parser.add_argument("--epochs", default=0)
 parser.add_argument("--show_image", "-s", default=False, action="store_true")
-parser.add_argument("--save_path", default=None)
+# parser.add_argument("--save_path", type=str, default='')
 parser.add_argument("--checkpoint_dir")
 parser.add_argument("--continue_fpath")
 parser.add_argument("--sliding", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--compile", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--compile_mode", default="default")
 parser.add_argument("--syncbn", default=True, action=argparse.BooleanOptionalAction)
-parser.add_argument("--mst", default=True, action=argparse.BooleanOptionalAction)
+parser.add_argument("--mst", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--amp", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--val_amp", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--use_seed", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--local-rank", default=0, type=int)
+parser.add_argument('--save_path', default=f'trained/trav/', type=str)
 
-# parser.add_argument('--save_path', '-p', default=None)
-
-# os.environ['MASTER_PORT'] = '169710'
 torch.set_float32_matmul_precision("high")
-import torch._dynamo
+# import torch._dynamo
 
 # torch._dynamo.config.suppress_errors = True
-# torch._dynamo.config.automatic_dynamic_shapes = False
 
 
 def is_eval(epoch, config):
-    return epoch > int(config.checkpoint_start_epoch) or epoch == 1 or epoch % 10 == 0
+    return epoch > int(config.checkpoint_start_epoch) or epoch == 1 or epoch % config.checkpoint_step == 0
 
 
 class gpu_timer:
@@ -135,7 +126,7 @@ with Engine(custom_parser=parser) as engine:
             "compile_mode is only valid when compile is enabled, ignoring compile_mode"
         )
 
-    train_loader, train_sampler = get_train_loader(engine, RGBXDataset, config)
+    train_loader, train_sampler = get_train_loader(engine, TravRGBDDataset, config)
 
     if args.gpus == 2:
         if args.mst and args.compile and args.compile_mode == "reduce-overhead":
@@ -158,11 +149,9 @@ with Engine(custom_parser=parser) as engine:
     else:
         val_dl_factor = 1.5
 
-    # val_dl_factor = 1 # TODO: remove this line
-
     val_loader, val_sampler = get_val_loader(
         engine,
-        RGBXDataset,
+        TravRGBDDataset,
         config,
         val_batch_size=int(config.batch_size * val_dl_factor) if config.dataset_name!="SUNRGBD" else int(args.gpus),
     )
@@ -182,7 +171,7 @@ with Engine(custom_parser=parser) as engine:
     for k in args.__dict__:
         logger.info(k + ": " + str(args.__dict__[k]))
 
-    criterion = nn.CrossEntropyLoss(reduction="none", ignore_index=config.background)  # config.background=255
+    criterion = nn.CrossEntropyLoss(reduction="none", ignore_index=config.background)
 
     if args.syncbn:
         BatchNorm2d = nn.SyncBatchNorm
@@ -197,20 +186,15 @@ with Engine(custom_parser=parser) as engine:
         norm_layer=BatchNorm2d,
         syncbn=args.syncbn,
     )
-    # weight=torch.load('checkpoints/NYUv2_DFormer_Large.pth')['model']
-    # w_list=list(weight.keys())
-    # # for k in w_list:
-    # #     weight[k[7:]] = weight[k]
-    # print('load model')
-    # model.load_state_dict(weight)
+    fss = FewShotSegmentation(model)
+    con_loss = ContrastiveLoss()
 
     base_lr = config.lr
-    # if engine.distributed:
-    #     base_lr = config.lr
+    if engine.distributed:
+        base_lr = config.lr
 
     params_list = []
     params_list = group_weight(params_list, model, BatchNorm2d, base_lr)
-    # params_list = configure_optimizers(model, base_lr, config.weight_decay)
 
     if config.optimizer == "AdamW":
         optimizer = torch.optim.AdamW(
@@ -236,9 +220,19 @@ with Engine(custom_parser=parser) as engine:
         total_iteration,
         config.niters_per_epoch * config.warm_up_epoch,
     )
-    
-    device = args.device if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
+    if engine.distributed:
+        logger.info(".............distributed training.............")
+        if torch.cuda.is_available():
+            model.cuda()
+            model = DistributedDataParallel(
+                model,
+                device_ids=[engine.local_rank],
+                output_device=engine.local_rank,
+                find_unused_parameters=False,
+            )
+    else:
+        device = args.device if torch.cuda.is_available() else "cpu"
+        model = model.to(device)
 
     engine.register_state(dataloader=train_loader, model=model, optimizer=optimizer)
     if engine.continue_state_object:
@@ -261,16 +255,8 @@ with Engine(custom_parser=parser) as engine:
         "eval_source": config.eval_source,
         "class_names": config.class_names,
     }
-    # val_pre = ValPre()
-    # val_dataset = RGBXDataset(data_setting, 'val', val_pre)
-    # test_loader, test_sampler = get_test_loader(engine, RGBXDataset,config)
-    all_dev = [0]
-    # segmentor = SegEvaluator(val_dataset, config.num_classes, config.norm_mean,
-    #                                 config.norm_std, None,
-    #                                 config.eval_scale_array, config.eval_flip,
-    #                                 all_dev, config,args.verbose, args.save_path,args.show_image)
-    # uncompiled_model = model
-    if args.compile:
+    
+    if args.compile:  # False
         compiled_model = torch.compile(
             model, backend="inductor", mode=args.compile_mode
         )
@@ -287,16 +273,6 @@ with Engine(custom_parser=parser) as engine:
         model.train()
         if engine.distributed:
             train_sampler.set_epoch(epoch)
-        # bar_format = "{desc}[{elapsed}<{remaining},{rate_fmt}]"
-        # pbar = tqdm(
-        #     range(config.niters_per_epoch),
-        #     file=sys.stdout,
-        #     bar_format=bar_format,
-        #     # range(5),
-        #     # file=sys.stdout,
-        #     # bar_format=bar_format,
-        # )
-        # dataloader = iter(train_loader)
 
         sum_loss = 0
         i = 0
@@ -304,19 +280,19 @@ with Engine(custom_parser=parser) as engine:
         for idx, batch in enumerate(train_loader):
             engine.update_iteration(epoch, idx)
 
-            imgs = batch["rgb"]
-            gts = batch["gt"]
-            modal_xs = batch["modal_x"]
+            rgb = batch["rgb"]
+            gt = batch["gt"]
+            laser = batch["laser"]
 
-            imgs = imgs.cuda(non_blocking=True)
-            gts = gts.cuda(non_blocking=True)
-            modal_xs = modal_xs.cuda(non_blocking=True)
+            rgb = rgb.cuda(non_blocking=True)
+            gt = gt.cuda(non_blocking=True)
+            laser = laser.cuda(non_blocking=True)
 
-            if args.amp:
+            if args.amp:  # True
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    loss = model(imgs, modal_xs, gts)
+                    loss, out = model(rgb, laser, gt)
             else:
-                loss = model(imgs, modal_xs, gts)
+                loss, out = model(rgb, laser, gt)
 
             # reduce the whole loss over multi-gpu
             if engine.distributed:
@@ -374,113 +350,20 @@ with Engine(custom_parser=parser) as engine:
                 print(print_str)
 
             del loss
-            # pbar.set_description(print_str, refresh=False)
+
         logger.info(print_str)
         train_timer.stop()
-
-        # if (engine.distributed and (engine.local_rank == 0)) or (
-        #     not engine.distributed
-        # ):
-        #     tb.add_scalar("train_loss", sum_loss / len(pbar), epoch)
 
         if is_eval(epoch, config):
             eval_timer.start()
             torch.cuda.empty_cache()
-            # if args.compile and args.mst and (not args.sliding):
-            #     model = uncompiled_model
-            # TODO: FIX this
-            if engine.distributed:
-                with torch.no_grad():
-                    model.eval()
-                    device = args.device
-                    if args.val_amp:
-                        with torch.autocast(device_type="cuda", dtype=torch.float16):
-                            if args.mst:
-                                all_metrics = evaluate_msf(
-                                    model,
-                                    val_loader,
-                                    config,
-                                    device,
-                                    [0.5, 0.75, 1.0, 1.25, 1.5],
-                                    True,
-                                    engine,
-                                    sliding=args.sliding,
-                                )
-                            else:
-                                all_metrics = evaluate(
-                                    model,
-                                    val_loader,
-                                    config,
-                                    device,
-                                    engine,
-                                    sliding=args.sliding,
-                                )
-                    else:
-                        if args.mst:
-                            all_metrics = evaluate_msf(
-                                model,
-                                val_loader,
-                                config,
-                                device,
-                                [0.5, 0.75, 1.0, 1.25, 1.5],
-                                True,
-                                engine,
-                                sliding=args.sliding,
-                            )
-                        else:
-                            all_metrics = evaluate(
-                                model,
-                                val_loader,
-                                config,
-                                device,
-                                engine,
-                                sliding=args.sliding,
-                            )
-                    if engine.local_rank == 0:
-                        metric = all_metrics[0]
-                        for other_metric in all_metrics[1:]:
-                            metric.update_hist(other_metric.hist)
-                        ious, miou = metric.compute_iou()
-                        acc, macc = metric.compute_pixel_acc()
-                        f1, mf1 = metric.compute_f1()
-                        if miou > best_miou:
-                            best_miou = miou
-                            engine.save_and_link_checkpoint(
-                                config.log_dir,
-                                config.log_dir,
-                                config.log_dir_link,
-                                infor="_miou_" + str(miou),
-                                metric=miou,
-                            )
-                        print("miou", miou, "best", best_miou)
-            elif not engine.distributed:
-                with torch.no_grad():
-                    model.eval()
-                    device = args.device
-                    if args.val_amp:
-                        with torch.autocast(device_type="cuda", dtype=torch.float16):
-                            if args.mst:
-                                metric = evaluate_msf(
-                                    model,
-                                    val_loader,
-                                    config,
-                                    device,
-                                    [0.5, 0.75, 1.0, 1.25, 1.5],
-                                    True,
-                                    engine,
-                                    sliding=args.sliding,
-                                )
-                            else:
-                                metric = evaluate(
-                                    model,
-                                    val_loader,
-                                    config,
-                                    device,
-                                    engine,
-                                    sliding=args.sliding,
-                                )
-                    else:
-                        if args.mst:
+           
+            with torch.no_grad():
+                model.eval()
+                device = torch.device("cuda")
+                if args.val_amp:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        if args.mst:  # False
                             metric = evaluate_msf(
                                 model,
                                 val_loader,
@@ -500,22 +383,41 @@ with Engine(custom_parser=parser) as engine:
                                 engine,
                                 sliding=args.sliding,
                             )
-                    ious, miou = metric.compute_iou()
-                    acc, macc = metric.compute_pixel_acc()
-                    f1, mf1 = metric.compute_f1()
-                    # print('miou',miou)
-                # print('acc, macc, f1, mf1, ious, miou',acc, macc, f1, mf1, ious, miou)
-                # print('miou',miou)
-                if miou > best_miou:
-                    best_miou = miou
-                    engine.save_and_link_checkpoint(
-                        config.log_dir,
-                        config.log_dir,
-                        config.log_dir_link,
-                        infor="_miou_" + str(miou),
-                        metric=miou,
-                    )
-                print("miou", miou, "best", best_miou)
+                else:
+                    if args.mst:
+                        metric = evaluate_msf(
+                            model,
+                            val_loader,
+                            config,
+                            device,
+                            [0.5, 0.75, 1.0, 1.25, 1.5],
+                            True,
+                            engine,
+                            sliding=args.sliding,
+                        )
+                    else:
+                        metric = evaluate(
+                            model,
+                            val_loader,
+                            config,
+                            device,
+                            engine,
+                            sliding=args.sliding,
+                        )
+                ious, miou = metric.compute_iou()
+                acc, macc = metric.compute_pixel_acc()
+                f1, mf1 = metric.compute_f1()
+
+            if miou > best_miou:
+                best_miou = miou
+                engine.save_and_link_checkpoint(
+                    config.log_dir,
+                    config.log_dir,
+                    config.log_dir_link,
+                    infor="_miou_" + str(miou),
+                    metric=miou,
+                )
+            print("miou", miou, "best", best_miou)
             logger.info(
                 f"Epoch {epoch} validation result: mIoU {miou}, best mIoU {best_miou}"
             )
@@ -530,7 +432,7 @@ with Engine(custom_parser=parser) as engine:
             + eval_timer.mean_time * eval_count
         )
         eta = (
-            datetime.now() + timedelta(seconds=left_time)
+            datetime.datetime.now() + datetime.timedelta(seconds=left_time)
         ).strftime("%Y-%m-%d %H:%M:%S")
         logger.info(
             f"Avg train time: {train_timer.mean_time:.2f}s, avg eval time: {eval_timer.mean_time:.2f}s, left eval count: {eval_count}, ETA: {eta}"

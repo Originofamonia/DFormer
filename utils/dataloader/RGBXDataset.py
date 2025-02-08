@@ -149,7 +149,6 @@ class TravRGBDDataset(Dataset):
         self._eval_source = setting['eval_source']
         self.class_names = setting['class_names']
         self.df = self._get_file_names(split_name)
-        # self._file_length = file_length
         self.transform = transform
 
     def _get_file_names(self, split_name):
@@ -169,16 +168,13 @@ class TravRGBDDataset(Dataset):
         gt_file = os.path.splitext(gt_path)[0] + '.npy'
         laser_file = row['depth']
 
-        # rgb = io.read_image(rgb_path)
-        # gt = io.read_image(gt_file)
         with open(laser_file, 'rb') as f:
             data = pickle.load(f)
             laser = np.array(data['ranges'][::-1])[540:900]
         rgb = self._open_image(rgb_path, cv2.COLOR_BGR2RGB)
 
-        # gt = self._open_image(gt_file, cv2.IMREAD_GRAYSCALE, dtype=np.uint8)
         gt = np.load(gt_file)
-        # print(laser.shape)
+
         if len(laser.shape) == 1:
             laser = np.expand_dims(laser, axis=1)
 
@@ -196,4 +192,109 @@ class TravRGBDDataset(Dataset):
     def _open_image(filepath, mode=cv2.IMREAD_COLOR, dtype=None):
         img = np.array(cv2.imread(filepath, mode), dtype=dtype)
         return img
+
+
+class FewShotTravRGBDDataset(Dataset):
+    def __init__(self, setting, split_name, transform=None, K=5, Q=1):
+        super(FewShotTravRGBDDataset, self).__init__()
+        self._split_name = split_name
+        self._transform_gt = setting['transform_gt']
+        self._train_source = setting['train_source']
+        self._eval_source = setting['eval_source']
+        self.class_names = setting['class_names']
+        self.transform = transform
+        self.K = K  # Number of support samples
+        self.Q = Q  # Number of query samples
+
+        # Load dataset and organize by class
+        self.df = self._get_file_names(split_name)
+        self.class_to_images = self._group_by_class()
+
+    def _get_file_names(self, split_name):
+        """ Load file names from CSV """
+        file_source = self._train_source if split_name == 'train' else self._eval_source
+        return pd.read_csv(file_source, index_col=0)
+
+    def _group_by_class(self):
+        """ Group file paths by class """
+        class_to_images = {cls: [] for cls in self.class_names}
+        for _, row in self.df.iterrows():
+            gt_path = row['img'].replace('/images/', '/labels/')
+            gt_file = os.path.splitext(gt_path)[0] + '.npy'
+            class_label = self._get_class_from_mask(gt_file)  # Extract class info from mask
+
+            if class_label in class_to_images:
+                class_to_images[class_label].append({
+                    'rgb': row['img'],
+                    'gt': gt_file,
+                    'depth': row['depth']
+                })
+        return class_to_images
+
+    def _get_class_from_mask(self, gt_file):
+        """ Extract dominant class from mask (excluding 255) """
+        gt = np.load(gt_file)
         
+        # Get unique classes, excluding background (255)
+        unique_classes = np.unique(gt)
+        unique_classes = unique_classes[(unique_classes != 255)]  # Remove 255
+        
+        # Keep only valid classes (0 or 1)
+        valid_classes = unique_classes[np.isin(unique_classes, [0, 1])]
+
+        return int(np.random.choice(valid_classes)) if len(valid_classes) > 0 else -1
+
+    def __len__(self):
+        return len(self.class_names)  # Number of episodes = number of classes
+
+    def __getitem__(self, index):
+        """ Returns an episode: K support samples + Q query samples for a class """
+        class_label = self.class_names[index]
+        images_list = self.class_to_images[class_label]
+
+        if len(images_list) < self.K + self.Q:
+            raise ValueError(f"Not enough samples for class {class_label}!")
+
+        # Randomly sample K support and Q query examples using numpy
+        sampled_indices = np.random.choice(len(images_list), self.K + self.Q, replace=False)
+        sampled_images = [images_list[i] for i in sampled_indices]
+        support_set = sampled_images[:self.K]
+        query_set = sampled_images[self.K:]
+
+        def load_sample(sample):
+            """ Load and transform an image, mask, and depth file """
+            with open(sample['depth'], 'rb') as f:
+                laser = np.array(pickle.load(f)['ranges'][::-1])[540:900]
+            laser = np.expand_dims(laser, axis=1) if len(laser.shape) == 1 else laser
+
+            rgb = self._open_image(sample['rgb'], cv2.COLOR_BGR2RGB)
+            gt = np.load(sample['gt'])
+
+            if self.transform:
+                rgb, gt, laser = self.transform(rgb, gt, laser)
+
+            return (
+                torch.tensor(rgb).float(),
+                torch.tensor(gt).long(),
+                torch.tensor(laser).float()
+            )
+
+        # Load support and query sets
+        support_images, support_masks, support_lasers = zip(*[load_sample(s) for s in support_set])
+        query_images, query_masks, query_lasers = zip(*[load_sample(q) for q in query_set])
+
+        return {
+            "support_images": torch.stack(support_images),  # [K, C, H, W]
+            "support_masks": torch.stack(support_masks),  # [K, H, W]
+            "support_lasers": torch.stack(support_lasers),  # [K, L]
+            "query_images": torch.stack(query_images),  # [Q, C, H, W]
+            "query_masks": torch.stack(query_masks),  # [Q, H, W]
+            "query_lasers": torch.stack(query_lasers),  # [Q, L]
+            "class": class_label
+        }
+
+    @staticmethod
+    def _open_image(filepath, mode=cv2.IMREAD_COLOR, dtype=None):
+        """ Open an image file """
+        return np.array(cv2.imread(filepath, mode), dtype=dtype)
+

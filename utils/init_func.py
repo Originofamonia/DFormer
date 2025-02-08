@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-# from models.encoders.DFormer import LayerNorm
+from models.encoders.DFormer import LayerNorm
 # from mmseg.models.decode_heads.mask_attention_cot import LayerNorm as LayerNorm1
 
 

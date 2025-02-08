@@ -319,7 +319,7 @@ class DFormerTrav(BaseModule):
                 nn.Conv2d(dims[0] // 2, dims[0], kernel_size=3, stride=2, padding=1),
                 nn.BatchNorm2d(dims[0]),
         )
-        # TODO: Add MLP layers for x_e
+
         self.stem_e_fc1 = nn.Linear(360, 640)
         self.stem_e_fc2 = nn.Linear(1, 480)
         self.downsample_layers_e = nn.ModuleList() 
@@ -366,12 +366,6 @@ class DFormerTrav(BaseModule):
             self.stages.append(stage)
             cur += depths[i]
 
-       
-        # for i in out_indices:
-        #     layer = LayerNorm(dims[i], eps=1e-6, data_format="channels_first")
-        #     layer_name = f'norm{i}'
-        #     self.add_module(layer_name, layer)
-
     def init_weights(self, pretrained):
         _state_dict = torch.load(pretrained, weights_only=False)
         if 'state_dict_ema' in _state_dict.keys():
@@ -398,15 +392,15 @@ class DFormerTrav(BaseModule):
             x = x.unsqueeze(0)
         if len(x_e.shape) == 3:
             x_e = x_e.unsqueeze(2)
-        # x_e.shape: [1, 8, 1, 360]
-        x_e = x_e[:,0,:,:].unsqueeze(1)
-        # TODO: add MLP(x_e) here
+        
+        x_e = x_e[:,0,:,:].unsqueeze(1)  # x_e.shape: [1, 8, 1, 360]
+        
         x_e = self.stem_e_fc1(x_e)
         x_e = x_e.permute(0, 1, 3, 2)
         x_e = self.stem_e_fc2(x_e)
         x_e = x_e.permute(0, 1, 3, 2)  # [B, 1, 480, 640]
 
-        outs = []
+        outs = []  # 4 layers' outputs
         for i in range(4):
             x = self.downsample_layers[i](x)
             x_e = self.downsample_layers_e[i](x_e)
@@ -418,7 +412,7 @@ class DFormerTrav(BaseModule):
             x = x.permute(0, 3, 1, 2)
             x_e = x_e.permute(0, 3, 1, 2)
             outs.append(x)
-        return outs, None
+        return outs
 
 
 def DFormer_Tiny(pretrained=False, **kwargs):   # 81.5

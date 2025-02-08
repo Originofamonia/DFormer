@@ -152,8 +152,6 @@ with Engine(custom_parser=parser) as engine:
     else:
         val_dl_factor = 1.5
 
-    val_dl_factor = 1 # TODO: remove this line
-
     val_loader, val_sampler = get_val_loader(
         engine,
         TravRGBDDataset,
