@@ -13,9 +13,9 @@ from importlib import import_module
 import datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils.dataloader.dataloader import get_train_loader, get_val_loader
+from utils.dataloader.dataloader import get_fs_train_loader, get_fs_val_loader
 from models.builder import EncoderDecoder as segmodel, FewShotSegmentation, ContrastiveLoss
-from utils.dataloader.RGBXDataset import TravRGBDDataset
+from utils.dataloader.RGBXDataset import FewShotTravRGBDDataset
 
 from utils.init_func import group_weight
 
@@ -23,7 +23,7 @@ from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
 from utils.pyt_utils import all_reduce_tensor
-from utils.val_mm import evaluate, evaluate_msf
+from utils.val_mm import evaluate_msf, fss_evaluate
 
 
 
@@ -126,7 +126,7 @@ with Engine(custom_parser=parser) as engine:
             "compile_mode is only valid when compile is enabled, ignoring compile_mode"
         )
 
-    train_loader, train_sampler = get_train_loader(engine, TravRGBDDataset, config)
+    train_loader, train_sampler = get_fs_train_loader(engine, FewShotTravRGBDDataset, config)
 
     if args.gpus == 2:
         if args.mst and args.compile and args.compile_mode == "reduce-overhead":
@@ -149,11 +149,11 @@ with Engine(custom_parser=parser) as engine:
     else:
         val_dl_factor = 1.5
 
-    val_loader, val_sampler = get_val_loader(
+    val_loader, val_sampler = get_fs_val_loader(
         engine,
-        TravRGBDDataset,
+        FewShotTravRGBDDataset,
         config,
-        val_batch_size=int(config.batch_size * val_dl_factor) if config.dataset_name!="SUNRGBD" else int(args.gpus),
+        val_batch_size=int(config.batch_size * val_dl_factor),
     )
     logger.info(f"val dataset len:{len(val_loader)*int(args.gpus)}")
 
@@ -213,7 +213,7 @@ with Engine(custom_parser=parser) as engine:
     else:
         raise NotImplementedError
 
-    total_iteration = config.nepochs * config.niters_per_epoch
+    total_iteration = config.epochs * config.niters_per_epoch
     lr_policy = WarmUpPolyLR(
         base_lr,
         config.lr_power,
@@ -268,7 +268,7 @@ with Engine(custom_parser=parser) as engine:
 
     if args.amp:
         scaler = torch.amp.GradScaler()
-    for epoch in range(engine.state.epoch, config.nepochs + 1):
+    for epoch in range(engine.state.epoch, config.epochs + 1):
         model = compiled_model
         model.train()
         if engine.distributed:
@@ -279,20 +279,21 @@ with Engine(custom_parser=parser) as engine:
         train_timer.start()
         for idx, batch in enumerate(train_loader):
             engine.update_iteration(epoch, idx)
-
-            rgb = batch["rgb"]
-            gt = batch["gt"]
-            laser = batch["laser"]
-
-            rgb = rgb.cuda(non_blocking=True)
-            gt = gt.cuda(non_blocking=True)
-            laser = laser.cuda(non_blocking=True)
+            s_imgs = batch['s_imgs'].to(args.device)
+            s_masks = batch['s_masks'].to(args.device)
+            s_depths = batch['s_depths'].to(args.device)
+            q_masks = batch['q_masks'].to(args.device)
+            q_imgs = batch['q_imgs'].to(args.device)
+            q_depths = batch['q_depths'].to(args.device)
+            class_label = batch['class']
 
             if args.amp:  # True
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    loss, out = model(rgb, laser, gt)
+                    #def forward(self, s_imgs, s_depths, s_masks, q_imgs, q_depths):
+                    q_out4, q_logits, prototypes = fss(s_imgs, s_depths, s_masks, q_imgs, q_depths)
             else:
-                loss, out = model(rgb, laser, gt)
+                q_out4, q_logits, prototypes = fss(s_imgs, s_depths, s_masks, q_imgs, q_depths)
+            loss = con_loss(q_out4, prototypes, q_masks)
 
             # reduce the whole loss over multi-gpu
             if engine.distributed:
@@ -328,7 +329,7 @@ with Engine(custom_parser=parser) as engine:
             if engine.distributed:
                 sum_loss += reduce_loss.item()
                 print_str = (
-                    "Epoch {}/{}".format(epoch, config.nepochs)
+                    "Epoch {}/{}".format(epoch, config.epochs)
                     + " Iter {}/{}:".format(idx + 1, config.niters_per_epoch)
                     + " lr=%.4e" % lr
                     + " loss=%.4f total_loss=%.4f"
@@ -338,7 +339,7 @@ with Engine(custom_parser=parser) as engine:
             else:
                 sum_loss += loss
                 print_str = (
-                    f"Epoch {epoch}/{config.nepochs} "
+                    f"Epoch {epoch}/{config.epochs} "
                     + f"Iter {idx + 1}/{config.niters_per_epoch}: "
                     + f"lr={lr:.4e} loss={loss:.4f} total_loss={(sum_loss / (idx + 1)):.4f}"
                 )
@@ -350,8 +351,8 @@ with Engine(custom_parser=parser) as engine:
                 print(print_str)
 
             del loss
+            logger.info(print_str)
 
-        logger.info(print_str)
         train_timer.stop()
 
         if is_eval(epoch, config):
@@ -360,7 +361,6 @@ with Engine(custom_parser=parser) as engine:
            
             with torch.no_grad():
                 model.eval()
-                device = torch.device("cuda")
                 if args.val_amp:
                     with torch.autocast(device_type="cuda", dtype=torch.float16):
                         if args.mst:  # False
@@ -375,8 +375,9 @@ with Engine(custom_parser=parser) as engine:
                                 sliding=args.sliding,
                             )
                         else:
-                            metric = evaluate(
-                                model,
+                            metric = fss_evaluate(
+                                fss,
+                                con_loss,
                                 val_loader,
                                 config,
                                 device,
@@ -396,7 +397,7 @@ with Engine(custom_parser=parser) as engine:
                             sliding=args.sliding,
                         )
                     else:
-                        metric = evaluate(
+                        metric = fss_evaluate(
                             model,
                             val_loader,
                             config,
@@ -424,11 +425,11 @@ with Engine(custom_parser=parser) as engine:
             eval_timer.stop()
 
         eval_count = 0
-        for i in range(engine.state.epoch + 1, config.nepochs + 1):
+        for i in range(engine.state.epoch + 1, config.epochs + 1):
             if is_eval(i, config):
                 eval_count += 1
         left_time = (
-            train_timer.mean_time * (config.nepochs - engine.state.epoch)
+            train_timer.mean_time * (config.epochs - engine.state.epoch)
             + eval_timer.mean_time * eval_count
         )
         eta = (

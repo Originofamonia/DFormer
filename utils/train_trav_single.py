@@ -310,9 +310,9 @@ with Engine(custom_parser=parser) as engine:
 
             if args.amp:
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    loss = model(rgb, laser, gt)
+                    loss, out = model(rgb, laser, gt)
             else:
-                loss = model(rgb, laser, gt)
+                loss, out = model(rgb, laser, gt)
 
             # reduce the whole loss over multi-gpu
             if engine.distributed:

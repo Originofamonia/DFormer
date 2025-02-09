@@ -390,11 +390,16 @@ class DFormerTrav(BaseModule):
             x_e = x
         if len(x.shape) == 3:
             x = x.unsqueeze(0)
+        elif len(x.shape) == 5:
+            _, _, C, H, W = x.size()
+            x = x.view(-1, C, H, W)
         if len(x_e.shape) == 3:
             x_e = x_e.unsqueeze(2)
-        
-        x_e = x_e[:,0,:,:].unsqueeze(1)  # x_e.shape: [1, 8, 1, 360]
-        
+            x_e = x_e[:,0,:,:].unsqueeze(1)  # output x_e.shape: [B, 1, 1, 360]
+        elif len(x_e.shape) == 4:
+            _, _, C_e, W_e = x_e.size()
+            x_e = x_e.view(-1, 1, C_e, W_e)
+
         x_e = self.stem_e_fc1(x_e)
         x_e = x_e.permute(0, 1, 3, 2)
         x_e = self.stem_e_fc2(x_e)

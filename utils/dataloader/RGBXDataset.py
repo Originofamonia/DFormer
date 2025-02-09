@@ -222,13 +222,13 @@ class FewShotTravRGBDDataset(Dataset):
             gt_path = row['img'].replace('/images/', '/labels/')
             gt_file = os.path.splitext(gt_path)[0] + '.npy'
             class_label = self._get_class_from_mask(gt_file)  # Extract class info from mask
-
             if class_label in class_to_images:
                 class_to_images[class_label].append({
                     'rgb': row['img'],
                     'gt': gt_file,
                     'depth': row['depth']
                 })
+
         return class_to_images
 
     def _get_class_from_mask(self, gt_file):
@@ -284,12 +284,12 @@ class FewShotTravRGBDDataset(Dataset):
         query_images, query_masks, query_lasers = zip(*[load_sample(q) for q in query_set])
 
         return {
-            "support_images": torch.stack(support_images),  # [K, C, H, W]
-            "support_masks": torch.stack(support_masks),  # [K, H, W]
-            "support_lasers": torch.stack(support_lasers),  # [K, L]
-            "query_images": torch.stack(query_images),  # [Q, C, H, W]
-            "query_masks": torch.stack(query_masks),  # [Q, H, W]
-            "query_lasers": torch.stack(query_lasers),  # [Q, L]
+            "s_imgs": torch.stack(support_images),  # [K, C, H, W]
+            "s_masks": torch.stack(support_masks),  # [K, H, W]
+            "s_depths": torch.stack(support_lasers),  # [K, L]
+            "q_imgs": torch.stack(query_images),  # [Q, C, H, W]
+            "q_masks": torch.stack(query_masks),  # [Q, H, W]
+            "q_depths": torch.stack(query_lasers),  # [Q, L]
             "class": class_label
         }
 

@@ -12,42 +12,50 @@ logger = get_logger()
 
 
 class FewShotSegmentation(nn.Module):
-    def __init__(self, feature_extractor):
+    def __init__(self, seg_model):
         super(FewShotSegmentation, self).__init__()
-        self.encoder = feature_extractor  # Pretrained backbone
+        self.model = seg_model
     
-    def forward(self, support_images, support_masks, query_images):
+    def forward(self, s_imgs, s_depths, s_masks, q_imgs, q_depths):
+        if s_masks.size()[1] != 1:
+            _, _, H, W = s_masks.size()
+            s_masks = s_masks.view(-1, 1, H, W)
         # Extract support features
-        support_features = self.encoder(support_images)  # [B, C, H, W]
-        query_features = self.encoder(query_images)      # [B, C, H, W]
+        s_features = self.model.encode(s_imgs, s_depths)  # [B, C, H, W]
+        q_features = self.model.encode(q_imgs, q_depths)      # [B, C, H, W]
         
         # Compute class prototypes
-        prototypes = self.compute_prototypes(support_features, support_masks)
+        _, _, H2, W2 = s_features[-1].size()
+        s_masks = F.interpolate(s_masks, size=(H2, W2), mode='bilinear', align_corners=False)
+        prototypes = self.compute_prototypes(s_features[-1], s_masks)  # [classes, B*shots, classes]
         
         # Compute similarity and classify query pixels
-        segmentation_map = self.match_prototypes(query_features, prototypes)
-        
-        return segmentation_map
+        # matched q_features at layer 4
+        q_out4 = self.match_prototypes(q_features[-1], prototypes)  # [B, 15, 20]
+        # def decode(self, x, rgb):
+        q_logits = self.model.decode(q_features, q_imgs)
+
+        return q_out4, q_logits, prototypes
     
     def compute_prototypes(self, features, masks):
         """ Compute class-wise prototype vectors from support set. """
-        C = features.shape[1]  # Number of feature channels
+        # C = features.shape[1]  # Number of feature channels
         prototypes = []
-        for c in range(1, masks.max() + 1):  # Ignore background (0)
+        for c in range(2):  # Ignore background (255)
             mask = (masks == c).float()  # Binary mask for class c
             prototype = (features * mask).sum(dim=(2,3)) / mask.sum(dim=(2,3))
             prototypes.append(prototype)
         return torch.stack(prototypes)  # [N_classes, C]
     
-    def match_prototypes(self, query_features, prototypes):
+    def match_prototypes(self, q_features, prototypes):
         """ Compute similarity between query features and prototypes """
-        B, C, H, W = query_features.shape
-        query_features = query_features.view(B, C, -1)  # Flatten to [B, C, HW]
+        B, C, H, W = q_features.shape
+        q_features = q_features.view(B, C, -1)  # Flatten to [B, C, HW]
         
         # Compute cosine similarity
-        similarities = F.cosine_similarity(query_features.unsqueeze(1), prototypes.unsqueeze(-1), dim=2)
-        segmentation_map = similarities.argmax(dim=1).view(B, H, W)  # Assign class with highest similarity
-        return segmentation_map
+        similarities = F.cosine_similarity(q_features.unsqueeze(1), prototypes.unsqueeze(-1), dim=2)
+        q_logits = similarities.argmax(dim=1).view(B, H, W)  # Assign class with highest similarity
+        return q_logits
 
 
 class ContrastiveLoss(nn.Module):
@@ -55,18 +63,22 @@ class ContrastiveLoss(nn.Module):
         super(ContrastiveLoss, self).__init__()
         self.temperature = temperature
 
-    def forward(self, query_features, prototypes, labels):
+    def forward(self, q_features, prototypes, q_masks):
         """ Compute contrastive loss: Query pixels should match their correct prototype. """
-        B, C, H, W = query_features.shape
-        query_features = query_features.view(B, C, -1)  # [B, C, HW]
-        labels = labels.view(B, -1)  # [B, HW]
+        if len(q_features.size()) == 3:
+            B, H, W = q_features.size()
+            q_features = q_features.view(B, 1, -1)
+        else:
+            B, C, H, W = q_features.shape
+            q_features = q_features.view(B, C, -1)  # [B, C, HW]
+        q_masks = q_masks.view(B, -1)  # [B, HW]
         
-        similarities = F.cosine_similarity(query_features.unsqueeze(1), prototypes.unsqueeze(-1), dim=2)
+        similarities = F.cosine_similarity(q_features.unsqueeze(1), prototypes.unsqueeze(-1), dim=2)
         
         # Compute contrastive loss
-        pos_mask = torch.zeros_like(similarities)
+        pos_mask = torch.zeros_like(similarities)  # [classes, B*shots, 15*20]
         for b in range(B):
-            pos_mask[b, labels[b], :] = 1  # Mark positive pairs
+            pos_mask[b, q_masks[b], :] = 1  # Mark positive pairs
         pos_similarity = (pos_mask * similarities).sum(dim=1) / pos_mask.sum(dim=1)
         neg_similarity = ((1 - pos_mask) * similarities).sum(dim=1) / (1 - pos_mask).sum(dim=1)
         
@@ -116,7 +128,7 @@ class EncoderDecoder(nn.Module):
             from .decoders.MLPDecoder import DecoderHead
             self.decode_head = DecoderHead(in_channels=self.channels, num_classes=cfg.num_classes, norm_layer=norm_layer, embed_dim=cfg.decoder_embed_dim)
         
-        elif cfg.decoder == 'ham':
+        elif cfg.decoder == 'ham': # True
             logger.info('Using Ham Decoder')
             print(cfg.num_classes)
             from .decoders.ham_head import LightHamHead as DecoderHead
@@ -193,10 +205,24 @@ class EncoderDecoder(nn.Module):
             aux_fm = F.interpolate(aux_fm, size=orisize[2:], mode='bilinear', align_corners=False)
             return out, aux_fm
         return out  # [B, 2, 480, 640]
+    
+    def encode(self, rgb, modal_x):
+        return self.backbone(rgb, modal_x)
+    
+    def decode(self, x, rgb):
+        orisize = rgb.shape
+        
+        out = self.decode_head.forward(x)  # [B, 2, 60, 80]
+        out = F.interpolate(out, size=orisize[-2:], mode='bilinear', align_corners=False)
+        if self.aux_head:  # None
+            aux_fm = self.aux_head(x[self.aux_index])
+            aux_fm = F.interpolate(aux_fm, size=orisize[2:], mode='bilinear', align_corners=False)
+            return out, aux_fm
+        return out
 
     def forward(self, rgb, modal_x=None, label=None):
         # print('builder',rgb.shape,modal_x.shape)
-        if self.aux_head:
+        if self.aux_head:  # False
             out, aux_fm = self.encode_decode(rgb, modal_x)
         else:
             out = self.encode_decode(rgb, modal_x)

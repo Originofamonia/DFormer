@@ -223,3 +223,98 @@ def get_val_loader(engine, dataset, config, val_batch_size=1):
     )
 
     return val_loader, val_sampler
+
+
+def get_fs_train_loader(engine, dataset, config):
+    data_setting = {
+        "rgb_root": config.rgb_root_folder,
+        "rgb_format": config.rgb_format,
+        "gt_root": config.gt_root_folder,
+        "gt_format": config.gt_format,
+        "transform_gt": config.gt_transform,
+        "x_root": config.x_root_folder,
+        "x_format": config.x_format,
+        "x_single_channel": config.x_is_single_channel,
+        "class_names": config.class_names,
+        "train_source": config.train_source,
+        "eval_source": config.eval_source,
+        "class_names": config.class_names,
+    }
+    
+    train_transform = TravTransform(config.norm_mean, config.norm_std, 
+                                    config.x_is_single_channel, config)
+    # __init__(self, setting, split_name, transform=None, K=5, Q=1)
+    train_dataset = dataset(
+        data_setting,
+        "train",
+        train_transform,
+        config.shots,
+    )
+
+    train_sampler = None
+    is_shuffle = True
+    batch_size = config.batch_size
+
+    if engine.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        batch_size = config.batch_size // engine.world_size
+        is_shuffle = False
+
+    train_loader = data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        num_workers=config.num_workers,
+        drop_last=True,
+        shuffle=is_shuffle,
+        pin_memory=True,
+        sampler=train_sampler,
+        # worker_init_fn=seed_worker,
+        # generator=g,
+    )
+
+    return train_loader, train_sampler
+
+
+def get_fs_val_loader(engine, dataset, config, val_batch_size=1):
+    setting = {
+        "rgb_root": config.rgb_root_folder,
+        "rgb_format": config.rgb_format,
+        "gt_root": config.gt_root_folder,
+        "gt_format": config.gt_format,
+        "transform_gt": config.gt_transform,
+        "x_root": config.x_root_folder,
+        "x_format": config.x_format,
+        "x_single_channel": config.x_is_single_channel,
+        "class_names": config.class_names,
+        "train_source": config.train_source,
+        "eval_source": config.eval_source,
+        "class_names": config.class_names,
+    }
+    
+    val_transform = TravTransform(config.norm_mean, config.norm_std, 
+                                    config.x_is_single_channel, config)
+    # __init__(self, setting, split_name, transform=None, K=5, Q=1)
+    val_dataset = dataset(setting, "val", val_transform, config.shots,)
+
+    val_sampler = None
+    is_shuffle = False
+    batch_size = val_batch_size
+
+    if engine.distributed:
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        batch_size = val_batch_size // engine.world_size
+        is_shuffle = False
+
+    val_loader = data.DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        num_workers=config.num_workers,
+        drop_last=False,
+        shuffle=is_shuffle,
+        pin_memory=True,
+        sampler=val_sampler,
+        # worker_init_fn=seed_worker,
+        # generator=g,
+    )
+
+    return val_loader, val_sampler

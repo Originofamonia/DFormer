@@ -31,10 +31,8 @@ C.is_test = True
 C.num_train_imgs = 421
 C.num_eval_imgs = 423
 C.num_classes = 2
-C.class_names = [
-    "obstacle",
-    "freespace",
-]
+C.class_names = [0, 1] # ["obstacle", "freespace"]
+
 
 """Image Config"""
 C.background = 255
