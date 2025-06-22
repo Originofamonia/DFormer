@@ -66,7 +66,7 @@ class Engine(object):
             self.devices = [0, 1]  # [i for i in range(self.world_size)]
         else:
             # self.local_rank = int(os.environ['LOCAL_RANK'])
-            self.devices = self.args.device  # parse_devices(self.args.devices)
+            self.devices = self.args.devices  # parse_devices(self.args.devices)
 
         self.checkpoint_state = []
 

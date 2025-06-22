@@ -214,7 +214,7 @@ with Engine(custom_parser=parser) as engine:
     else:
         raise NotImplementedError
 
-    total_iteration = config.nepochs * config.niters_per_epoch
+    total_iteration = config.epochs * config.niters_per_epoch
     lr_policy = WarmUpPolyLR(
         base_lr,
         config.lr_power,
@@ -277,7 +277,7 @@ with Engine(custom_parser=parser) as engine:
 
     if args.amp:
         scaler = torch.amp.GradScaler()
-    for epoch in range(engine.state.epoch, config.nepochs + 1):
+    for epoch in range(engine.state.epoch, config.epochs + 1):
         model = compiled_model
         model.train()
         if engine.distributed:
@@ -348,7 +348,7 @@ with Engine(custom_parser=parser) as engine:
             if engine.distributed:
                 sum_loss += reduce_loss.item()
                 print_str = (
-                    "Epoch {}/{}".format(epoch, config.nepochs)
+                    "Epoch {}/{}".format(epoch, config.epochs)
                     + " Iter {}/{}:".format(idx + 1, config.niters_per_epoch)
                     + " lr=%.4e" % lr
                     + " loss=%.4f total_loss=%.4f"
@@ -358,7 +358,7 @@ with Engine(custom_parser=parser) as engine:
             else:
                 sum_loss += loss
                 print_str = (
-                    f"Epoch {epoch}/{config.nepochs} "
+                    f"Epoch {epoch}/{config.epochs} "
                     + f"Iter {idx + 1}/{config.niters_per_epoch}: "
                     + f"lr={lr:.4e} loss={loss:.4f} total_loss={(sum_loss / (idx + 1)):.4f}"
                 )
@@ -518,11 +518,11 @@ with Engine(custom_parser=parser) as engine:
             eval_timer.stop()
 
         eval_count = 0
-        for i in range(engine.state.epoch + 1, config.nepochs + 1):
+        for i in range(engine.state.epoch + 1, config.epochs + 1):
             if is_eval(i, config):
                 eval_count += 1
         left_time = (
-            train_timer.mean_time * (config.nepochs - engine.state.epoch)
+            train_timer.mean_time * (config.epochs - engine.state.epoch)
             + eval_timer.mean_time * eval_count
         )
         eta = (

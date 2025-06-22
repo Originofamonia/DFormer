@@ -257,7 +257,6 @@ def draw_arch_sucai():
 
     # Plot the image
     # plt.imshow(array_2d, cmap='gray', interpolation='none')
-    
     plt.imshow(q_target, cmap=cmap, alpha=alpha)
     # Remove axis and borders
     plt.axis('off')  # Hides the axis
