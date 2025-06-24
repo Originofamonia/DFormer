@@ -141,22 +141,21 @@ class RGBXDataset(Dataset):
 
 
 class TravRGBDDataset(Dataset):
-    def __init__(self, setting, split_name, transform=None, file_length=None):
+    def __init__(self, setting, split_name, transform=None):
         super(TravRGBDDataset, self).__init__()
-        self._split_name = split_name  # train, eval
+        # self._split_name = split_name  # train, eval
         self._transform_gt = setting['transform_gt']
         self._train_source = setting['train_source']
         self._eval_source = setting['eval_source']
         self.class_names = setting['class_names']
-        self.df = self._get_file_names(split_name)
         self.transform = transform
+        self.df = None  # Don't load here
 
-    def _get_file_names(self, split_name):
+    def load_split(self, split_name):
         if split_name == 'train':
-            df = pd.read_csv(self._train_source, index_col=0)
+            self.df = pd.read_csv(self._train_source, index_col=0)
         else:
-            df = pd.read_csv(self._eval_source, index_col=0)
-        return df
+            self.df = pd.read_csv(self._eval_source, index_col=0)
     
     def __len__(self):
         return len(self.df)
@@ -192,6 +191,37 @@ class TravRGBDDataset(Dataset):
     def _open_image(filepath, mode=cv2.IMREAD_COLOR, dtype=None):
         img = np.array(cv2.imread(filepath, mode), dtype=dtype)
         return img
+
+
+class TravRGBDLabeledDataset(TravRGBDDataset):
+    def __init__(self, setting, df, transform=None):
+        super().__init__(setting, split_name='train', transform=transform)
+        self.df = df
+    
+    def __getitem__(self, index):
+        row = self.df.iloc[index]
+
+        with open(row['depth'], 'rb') as f:
+            data = pickle.load(f)
+            laser = np.array(data['ranges'][::-1])[540:900]
+        rgb = self._open_image(row['image'], cv2.COLOR_BGR2RGB)
+        if type(row['label']) is str:
+            gt = np.load(row['label'])
+        else:
+            print(row['label'])
+
+        if len(laser.shape) == 1:
+            laser = np.expand_dims(laser, axis=1)
+
+        if self.transform is not None:
+            rgb, gt, laser = self.transform(rgb, gt, laser)
+        rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()  # [3, 480, 640]
+        gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
+        laser = torch.from_numpy(np.ascontiguousarray(laser)).float()
+        output_dict = dict(rgb=rgb, gt=gt, laser=laser, rgb_path=row['image'], 
+                           gt_path=row['label'], laser_path=row['depth'], n=len(self.df))
+
+        return output_dict
 
 
 class FewShotTravRGBDDataset(Dataset):

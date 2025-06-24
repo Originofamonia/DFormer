@@ -3,9 +3,12 @@ import torch
 import numpy as np
 from torch.utils import data
 import random
+import pandas as pd
 
-# from config import config
-# from train import config
+from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader
+
+from utils.dataloader.RGBXDataset import TravRGBDLabeledDataset
 from utils.transforms import (
     generate_random_crop_pos,
     random_crop_pad_to_shape,
@@ -318,3 +321,83 @@ def get_fs_val_loader(engine, dataset, config, val_batch_size=1):
     )
 
     return val_loader, val_sampler
+
+
+def get_4fold_loaders(engine, dataset_class, config, csv_file):
+    # Load full dataframe
+    full_df = pd.read_csv(csv_file)
+    full_df = full_df[full_df['label'].notna() & (full_df['label'] != '')]
+    # Setup KFold
+    kf = KFold(n_splits=4, shuffle=True, random_state=42)
+    folds = []
+
+    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(full_df)):
+        train_df = full_df.iloc[train_idx]
+        val_df = full_df.iloc[val_idx]
+
+        if config.get('dataset', False) == 'Trav':
+            transform = TravTransform(config.norm_mean, config.norm_std, config.x_is_single_channel, config)
+        else:
+            transform = TrainPre(config.norm_mean, config.norm_std, config.x_is_single_channel, config)
+
+        # Build data_setting
+        data_setting = {
+            "rgb_root": config.rgb_root_folder,
+            "rgb_format": config.rgb_format,
+            "gt_root": config.gt_root_folder,
+            "gt_format": config.gt_format,
+            "transform_gt": config.gt_transform,
+            "x_root": config.x_root_folder,
+            "x_format": config.x_format,
+            "x_single_channel": config.x_is_single_channel,
+            "class_names": config.class_names,
+            "train_source": None,  # not used
+            "eval_source": None,   # not used
+        }
+
+        # Instantiate dataset class using overridden df
+        train_dataset = dataset_class(data_setting, train_df, transform=transform)
+        train_dataset.df = train_df
+
+        val_dataset = dataset_class(data_setting, val_df, transform=transform)
+        val_dataset.df = val_df
+
+        # Sampler setup
+        train_sampler = None
+        val_sampler = None
+        is_train_shuffle = True
+        is_val_shuffle = False
+        train_batch_size = config.batch_size
+        val_batch_size = config.val_batch_size if hasattr(config, "val_batch_size") else 1
+
+        if engine.distributed:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+            val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+            train_batch_size = config.batch_size // engine.world_size
+            val_batch_size = val_batch_size // engine.world_size
+            is_train_shuffle = False
+
+        # DataLoaders
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=train_batch_size,
+            num_workers=config.num_workers,
+            drop_last=True,
+            shuffle=is_train_shuffle,
+            pin_memory=True,
+            sampler=train_sampler,
+        )
+
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=val_batch_size,
+            num_workers=config.num_workers,
+            drop_last=False,
+            shuffle=is_val_shuffle,
+            pin_memory=True,
+            sampler=val_sampler,
+        )
+
+        folds.append((train_loader, val_loader, train_sampler, val_sampler))
+
+    return folds

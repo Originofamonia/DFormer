@@ -15,10 +15,10 @@ C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 0.01
 C.shots = 5
-C.batch_size = 2  # cannot be more than num of classes
-C.epochs = 20000  # since one epoch only has 2 episodes
+C.batch_size = 16  # cannot be more than num of classes
+C.epochs = 200  # since one epoch only has 2 episodes
 C.niters_per_epoch = C.num_train_imgs // C.batch_size + 1
-C.num_workers = 4
+C.num_workers = 8
 C.train_scale_array = [0.5, 0.75, 1, 1.25, 1.5, 1.75]
 C.warm_up_epoch = 10
 
