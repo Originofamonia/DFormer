@@ -104,8 +104,8 @@ def evaluate(model, dataloader, config, device, engine, save_dir=None, sliding=F
     model.eval()
     n_classes = config.num_classes
     metrics = Metrics(n_classes, config.background, device)
-
-    for idx, batch in enumerate(dataloader):
+    pbar = tqdm(dataloader, desc=f"Val len= {len(dataloader)}")
+    for idx, batch in enumerate(pbar):
         if ((idx + 1) % int(len(dataloader) * 0.5) == 0 or idx == 0) and (
             (engine.distributed and (engine.local_rank == 0))
             or (not engine.distributed)
@@ -117,17 +117,16 @@ def evaluate(model, dataloader, config, device, engine, save_dir=None, sliding=F
         laser = batch["laser"]
         if len(rgb.shape) == 3:
             rgb = rgb.unsqueeze(0)
-        if len(laser.shape) == 3:
-            laser = laser.unsqueeze(0)
         if len(gt.shape) == 2:
             gt = gt.unsqueeze(0)
-        # print(images.shape,labels.shape)
-        rgb = [rgb.to(device), laser.to(device)]
+
+        rgb = rgb.to(device)
         gt = gt.to(device)
+        laser = laser.to(device)
         if sliding:
             preds = slide_inference(model, rgb, laser, config).softmax(dim=1)
         else:
-            preds = model(rgb[0], rgb[1]).softmax(dim=1)
+            preds = model(rgb, laser).softmax(dim=1)
         # print(preds.shape,labels.shape)
         B, H, W = gt.shape
         metrics.update(preds, gt)
@@ -194,6 +193,7 @@ def evaluate(model, dataloader, config, device, engine, save_dir=None, sliding=F
                 plt.imsave(save_name, preds)
             else:
                 assert 1 == 2
+        pbar.set_postfix({'batch': f"{idx}"})
 
     # ious, miou = metrics.compute_iou()
     # acc, macc = metrics.compute_pixel_acc()

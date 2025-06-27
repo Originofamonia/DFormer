@@ -176,3 +176,4 @@ models/decoders/near_far.py
 *rgbdnew*
 checkpoints/*
 .vscode/
+wandb/

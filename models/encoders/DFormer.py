@@ -186,7 +186,7 @@ class DFormer(BaseModule):
         out_indices=(0, 1, 2, 3), windows=[7, 7, 7, 7], norm_cfg=dict(type='SyncBN', requires_grad=True),
         mlp_ratios=[8, 8, 4, 4], num_heads=(2, 4, 10, 16),last_block=[50,50,50,50], drop_path_rate=0.1, init_cfg=None):
         super().__init__()
-        print(drop_path_rate)
+
         self.depths = depths
         self.init_cfg = init_cfg
         self.out_indices = out_indices
@@ -198,7 +198,7 @@ class DFormer(BaseModule):
                 nn.Conv2d(dims[0] // 2, dims[0], kernel_size=3, stride=2, padding=1),
                 nn.BatchNorm2d(dims[0]),
         )
-        # TODO: Add MLP layers for x_e
+
         self.stem_e_fc1 = nn.Linear(360, 640)
         self.stem_e_fc2 = nn.Linear(1, 480)
         self.downsample_layers_e = nn.ModuleList() 
@@ -300,6 +300,40 @@ class DFormer(BaseModule):
         return outs,None
 
 
+class Attention1Dto2D(nn.Module):
+    def __init__(self, input_len=360, mid_len=640, output_len=480, embed_dim=64, num_heads=4):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.mid_len = mid_len
+        self.output_len = output_len
+
+        self.input_proj = nn.Linear(1, embed_dim)
+        self.query1 = nn.Parameter(torch.randn(mid_len, embed_dim))
+        self.attn1 = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+
+        self.query2 = nn.Parameter(torch.randn(output_len, embed_dim))
+        self.attn2 = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+
+        self.output_proj = nn.Linear(embed_dim, 1)
+
+    def forward(self, x):
+        B, H, W = x.shape  # Expect x: [B, 1, 1, 360]
+        x = x.view(B, W, 1)  # → [B, 360, 1]
+        x = self.input_proj(x)  # → [B, 360, C]
+
+        q1 = self.query1.unsqueeze(0).expand(B, -1, -1)  # [B, 640, C]
+        x, _ = self.attn1(q1, x, x)  # → [B, 640, C]
+
+        x = x.reshape(B * self.mid_len, 1, self.embed_dim)  # [B*640, 1, C]
+        q2 = self.query2.unsqueeze(0).expand(B * self.mid_len, -1, -1)  # [B*640, 480, C]
+        x, _ = self.attn2(q2, x, x)  # [B*640, 480, C]
+
+        x = self.output_proj(x).squeeze(-1)  # [B*640, 480]
+        x = x.view(B, 1, self.mid_len, self.output_len)  # [B, 1, 640, 480]
+        x = x.permute(0, 1, 3, 2)  # → [B, 1, 480, 640]
+        return x
+
+
 class DFormerTrav(BaseModule):
     def __init__(self, depths=(2, 2, 8, 2), dims=(32, 64, 128, 256), 
         out_indices=(0, 1, 2, 3), windows=[7, 7, 7, 7], 
@@ -320,8 +354,9 @@ class DFormerTrav(BaseModule):
                 nn.BatchNorm2d(dims[0]),
         )
 
-        self.stem_e_fc1 = nn.Linear(360, 640)
-        self.stem_e_fc2 = nn.Linear(1, 480)
+        self.attn_expand_e = Attention1Dto2D(
+            input_len=360, mid_len=640, output_len=480, embed_dim=64, num_heads=4
+        )
         self.downsample_layers_e = nn.ModuleList() 
         stem_e = nn.Sequential(
                 nn.Conv2d(1, dims[0] // 4, kernel_size=3, stride=2, padding=1),
@@ -393,18 +428,8 @@ class DFormerTrav(BaseModule):
         elif len(x.shape) == 5:
             _, _, C, H, W = x.size()
             x = x.view(-1, C, H, W)
-        if len(x_e.shape) == 3:
-            x_e = x_e.unsqueeze(2)
-            x_e = x_e[:,0,:,:].unsqueeze(1)  # output x_e.shape: [B, 1, 1, 360]
-        elif len(x_e.shape) == 4:
-            _, _, C_e, W_e = x_e.size()
-            x_e = x_e.view(-1, 1, C_e, W_e)
 
-        x_e = self.stem_e_fc1(x_e)
-        x_e = x_e.permute(0, 1, 3, 2)
-        x_e = self.stem_e_fc2(x_e)
-        x_e = x_e.permute(0, 1, 3, 2)  # [B, 1, 480, 640]
-
+        x_e = self.attn_expand_e(x_e)  # [B, 1, 480, 640]
         outs = []  # 4 layers' outputs
         for i in range(4):
             x = self.downsample_layers[i](x)

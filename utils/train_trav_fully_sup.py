@@ -17,6 +17,8 @@ from torch.nn.parallel import DistributedDataParallel
 from tensorboardX import SummaryWriter
 from importlib import import_module
 import datetime
+from tqdm import tqdm
+import wandb
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.dataloader.dataloader import get_4fold_loaders
@@ -190,13 +192,6 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError
 
-        total_iteration = config.epochs * config.niters_per_epoch
-        lr_policy = WarmUpPolyLR(
-            base_lr,
-            config.lr_power,
-            total_iteration,
-            config.niters_per_epoch * config.warm_up_epoch,
-        )
         if engine.distributed:
             logger.info(".............distributed training.............")
             if torch.cuda.is_available():
@@ -241,10 +236,18 @@ if __name__ == '__main__':
         # train_loader, train_sampler = get_train_loader(engine, TravRGBDLabeledDataset, config)
         folds = get_4fold_loaders(engine, TravRGBDLabeledDataset, config, 
                                   csv_file="/home/edward/data/segmentation_indoor_images/labeled_rgbd_pairs.csv")
-
+        wandb.init(project="MM-FSS", config=config)
         for fold_idx, (train_loader, val_loader, train_sampler, val_sampler) in enumerate(folds):
             logger.info(f"Fold: {fold_idx}")
             logger.info(f"Val dataset len:{len(val_loader)*int(args.gpus)}")
+            niters_per_epoch = len(train_loader)
+            total_iteration = config.epochs * niters_per_epoch
+            lr_policy = WarmUpPolyLR(
+                base_lr,
+                config.lr_power,
+                total_iteration,
+                len(train_loader) * config.warm_up_epoch,
+            )
             engine.register_state(dataloader=train_loader, model=model, optimizer=optimizer)
             if engine.continue_state_object:
                 engine.restore_checkpoint()
@@ -252,8 +255,9 @@ if __name__ == '__main__':
             for epoch in range(engine.state.epoch, config.epochs + 1):
                 model.train()
                 i = 0
+                pbar = tqdm(enumerate(train_loader), desc=f"Epoch {epoch}/{config.epochs}")
                 train_timer.start()
-                for idx, batch in enumerate(train_loader):
+                for idx, batch in pbar:
                     if engine.distributed:
                         train_sampler.set_epoch(epoch)
                     sum_loss = 0
@@ -299,7 +303,7 @@ if __name__ == '__main__':
                                 if param.grad is None:
                                     logger.warning(f"{name} has no grad, please check")
 
-                    current_idx = (epoch - 1) * config.niters_per_epoch + idx
+                    current_idx = (epoch - 1) * len(train_loader) + idx
                     lr = lr_policy.get_lr(current_idx)
 
                     for i in range(len(optimizer.param_groups)):
@@ -309,7 +313,6 @@ if __name__ == '__main__':
                         sum_loss += reduce_loss.item()
                         print_str = (
                             "Epoch {}/{}".format(epoch, config.epochs)
-                            + " Iter {}/{}:".format(idx + 1, config.niters_per_epoch)
                             + " lr=%.4e" % lr
                             + " loss=%.4f total_loss=%.4f"
                             % (reduce_loss.item(), (sum_loss / (idx + 1)))
@@ -319,19 +322,16 @@ if __name__ == '__main__':
                         sum_loss += loss
                         print_str = (
                             f"Epoch {epoch}/{config.epochs} "
-                            + f"Iter {idx + 1}/{config.niters_per_epoch}: "
                             + f"lr={lr:.4e} loss={loss:.4f} total_loss={(sum_loss / (idx + 1)):.4f}"
                         )
 
-                    if ((idx + 1) % int((config.niters_per_epoch) * 0.1) == 0 or idx == 0) and (
-                        (engine.distributed and (engine.local_rank == 0))
-                        or (not engine.distributed)
-                    ):
-                        logger.info(print_str)
-
+                    pbar.set_postfix({
+                        'lr': f"{lr:.4e}",
+                        'loss': f"{loss.item():.4f}",
+                        'total_loss': f"{(sum_loss / (idx + 1)):.4f}"
+                    })
                     del loss
-                    # pbar.set_description(print_str, refresh=False)
-                logger.info(print_str)
+                # logger.info(print_str)
                 train_timer.stop()
 
                 if is_eval(epoch, config):
@@ -454,6 +454,20 @@ if __name__ == '__main__':
                             ious, miou = metric.compute_iou()
                             acc, macc = metric.compute_pixel_acc()
                             f1, mf1 = metric.compute_f1()
+                            wandb.log({
+                                "Fold": fold_idx,
+                                "epoch": epoch,
+                                "mIoU": miou,
+                                "mean Acc": macc,
+                                "mean F1": mf1,
+                                "pixel Acc": acc,
+                                "F1_cls_0": f1[0],
+                                "F1_cls_1": f1[1],
+                                "IoU_cls_0": ious[0],
+                                "IoU_cls_1": ious[1],
+                                "Acc_cls_0": acc[0],
+                                "Acc_cls_1": acc[1],
+                            })
 
                         if miou > best_miou:
                             best_miou = miou
