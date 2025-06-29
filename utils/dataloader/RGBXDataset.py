@@ -205,10 +205,10 @@ class TravRGBDLabeledDataset(TravRGBDDataset):
             data = pickle.load(f)
             laser = np.array(data['ranges'][::-1])[540:900]
         rgb = self._open_image(row['image'], cv2.COLOR_BGR2RGB)
-        if type(row['label']) is str:
+        if 'label' in row and type(row['label']) is str:
             gt = np.load(row['label'])
         else:
-            print(row['label'])
+            gt = None
 
         if len(laser.shape) == 1:
             laser = np.expand_dims(laser, axis=1)
@@ -216,11 +216,14 @@ class TravRGBDLabeledDataset(TravRGBDDataset):
         if self.transform is not None:
             rgb, gt, laser = self.transform(rgb, gt, laser)
         rgb = torch.from_numpy(np.ascontiguousarray(rgb)).float()  # [3, 480, 640]
-        gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
         laser = torch.from_numpy(np.ascontiguousarray(laser)).float()
-        output_dict = dict(rgb=rgb, gt=gt, laser=laser, rgb_path=row['image'], 
-                           gt_path=row['label'], laser_path=row['depth'], n=len(self.df))
-
+        if gt is not None:
+            gt = torch.from_numpy(np.ascontiguousarray(gt)).long()  # [480, 640]
+            output_dict = dict(rgb=rgb, gt=gt, laser=laser, rgb_path=row['image'], 
+                           gt_path=row['label'], depth_path=row['depth'], n=len(self.df))
+        else:
+            output_dict = dict(rgb=rgb, laser=laser, rgb_path=row['image'], 
+                            depth_path=row['depth'], n=len(self.df))
         return output_dict
 
 

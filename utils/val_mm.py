@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 from matplotlib.colors import ListedColormap
 import pathlib
-# import matplotlib as mpl
+import pandas as pd
 # from pptx import Presentation
 # from pptx.util import Inches, Pt
 import torch
@@ -540,6 +540,46 @@ def evaluate_msf(
     return all_metrics
 
 
+@torch.no_grad()
+def infer_unlabeled_masks(model, dataloader, config, device, engine, save_dir=None, sliding=False):
+    print("Infer unlabeled masks...")
+    model.eval()
+    rows = []
+    pbar = tqdm(dataloader, desc=f"Val len= {len(dataloader)}")
+    for idx, batch in enumerate(pbar):
+        if ((idx + 1) % int(len(dataloader) * 0.5) == 0 or idx == 0) and (
+            (engine.distributed and (engine.local_rank == 0))
+            or (not engine.distributed)
+        ):
+            print(f"Validation Iter: {idx + 1} / {len(dataloader)}")
+
+        rgb = batch["rgb"]
+        laser = batch["laser"]
+        if len(rgb.shape) == 3:
+            rgb = rgb.unsqueeze(0)
+
+        rgb = rgb.to(device)
+        laser = laser.to(device)
+        if sliding:
+            preds = slide_inference(model, rgb, laser, config).softmax(dim=1)
+        else:
+            preds = model(rgb, laser).softmax(dim=1)
+
+        if save_dir is not None:
+            mask = torch.argmax(preds, dim=1)
+            mask = mask.squeeze(0)
+            mask_np = mask.cpu().numpy()
+            filename = Path(batch['rgb_path'][0]).stem + '_' + Path(batch['depth_path'][0]).stem
+            mask_path = os.path.join(save_dir, f'{filename}.npy')
+            row = {'image': batch['rgb_path'][0], 'depth': batch['depth_path'][0], 'label': mask_path}
+            rows.append(row)
+            np.save(os.path.join(save_dir, f'{filename}.npy'), mask_np)
+        pbar.set_postfix({'batch': f"{idx}"})
+    df = pd.DataFrame(rows)
+    csv_path = f'{save_dir}/unlabeled_masks.csv'
+    df.to_csv(csv_path, index=False)
+    return csv_path
+
 def main(cfg):
     device = torch.device(cfg["DEVICE"])
 
@@ -590,7 +630,7 @@ def main(cfg):
                     eval_cfg["MSF"]["FLIP"],
                 )
             else:
-                acc, macc, f1, mf1, ious, miou = evaluate(model, dataloader, device)
+                acc, macc, f1, mf1, ious, miou = infer_unlabeled_masks(model, dataloader, device)
 
             table = {
                 "Class": list(dataset.CLASSES) + ["Mean"],

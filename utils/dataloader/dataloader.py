@@ -323,7 +323,7 @@ def get_fs_val_loader(engine, dataset, config, val_batch_size=1):
     return val_loader, val_sampler
 
 
-def get_4fold_loaders(engine, dataset_class, config, csv_file):
+def get_unlabeled_loaders(engine, dataset_class, config, csv_file):
     # Load full dataframe
     full_df = pd.read_csv(csv_file)
     full_df = full_df[full_df['label'].notna() & (full_df['label'] != '')]
@@ -401,3 +401,81 @@ def get_4fold_loaders(engine, dataset_class, config, csv_file):
         folds.append((train_loader, val_loader, train_sampler, val_sampler))
 
     return folds
+
+
+def get_unlabeled_loaders(engine, dataset_class, config, labeled_csv, unlabeled_csv):
+    """
+    Fully supervised train on all labeled RGB-D pairs
+    Infer on all unlabeled pairs
+    """
+    # Load full dataframe
+    labeled_df = pd.read_csv(labeled_csv)
+    train_df = labeled_df[labeled_df['label'].notna() & (labeled_df['label'] != '')]
+    val_df = pd.read_csv(unlabeled_csv)
+    val_df.rename(columns={'depth_path': 'depth', 'img_path': 'image'}, inplace=True)
+    print(val_df[val_df['depth'].duplicated(keep=False)])  # no duplicated depths
+
+    if config.get('dataset', False) == 'Trav':
+        transform = TravTransform(config.norm_mean, config.norm_std, config.x_is_single_channel, config)
+    else:
+        transform = TrainPre(config.norm_mean, config.norm_std, config.x_is_single_channel, config)
+
+    # Build data_setting
+    data_setting = {
+        "rgb_root": config.rgb_root_folder,
+        "rgb_format": config.rgb_format,
+        "gt_root": config.gt_root_folder,
+        "gt_format": config.gt_format,
+        "transform_gt": config.gt_transform,
+        "x_root": config.x_root_folder,
+        "x_format": config.x_format,
+        "x_single_channel": config.x_is_single_channel,
+        "class_names": config.class_names,
+        "train_source": None,  # not used
+        "eval_source": None,   # not used
+    }
+
+    # Instantiate dataset class using overridden df
+    train_dataset = dataset_class(data_setting, train_df, transform=transform)
+    train_dataset.df = train_df
+
+    val_dataset = dataset_class(data_setting, val_df, transform=transform)
+    val_dataset.df = val_df
+
+    # Sampler setup
+    train_sampler = None
+    val_sampler = None
+    is_train_shuffle = True
+    is_val_shuffle = False
+    train_batch_size = config.batch_size
+    val_batch_size = config.val_batch_size if hasattr(config, "val_batch_size") else 1
+
+    if engine.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        train_batch_size = config.batch_size // engine.world_size
+        val_batch_size = val_batch_size // engine.world_size
+        is_train_shuffle = False
+
+    # DataLoaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=train_batch_size,
+        num_workers=config.num_workers,
+        drop_last=True,
+        shuffle=is_train_shuffle,
+        pin_memory=True,
+        sampler=train_sampler,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=val_batch_size,
+        num_workers=config.num_workers,
+        drop_last=False,
+        shuffle=is_val_shuffle,
+        pin_memory=True,
+        sampler=val_sampler,
+    )
+
+    return train_loader, val_loader, train_sampler, val_sampler

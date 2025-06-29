@@ -16,11 +16,10 @@ C.momentum = 0.9
 C.weight_decay = 0.01
 C.shots = 5
 C.batch_size = 16  # cannot be more than num of classes
-C.epochs = 150
+C.epochs = 90
 C.num_workers = 8
 C.train_scale_array = [0.5, 0.75, 1, 1.25, 1.5, 1.75]
 C.warm_up_epoch = 10
-
 C.fix_bias = True
 C.bn_eps = 1e-3
 C.bn_momentum = 0.1
@@ -42,6 +41,7 @@ C.checkpoint_step = 5
 C.log_dir = osp.abspath("checkpoints/trained/trav/" + C.backbone)
 C.log_dir = C.log_dir+'_'+time.strftime('%Y%m%d-%H%M%S', time.localtime()).replace(' ','_')
 C.tb_dir = osp.abspath(osp.join(C.log_dir, "tb"))
+C.save_dir = 'output/unlabeled_masks'
 C.log_dir_link = C.log_dir
 C.checkpoint_dir = osp.abspath(
     osp.join(C.log_dir, "checkpoint")
