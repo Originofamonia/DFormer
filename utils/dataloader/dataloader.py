@@ -77,18 +77,16 @@ class TrainPre(object):
 
 
 class TravTransform(object):
-    def __init__(self, norm_mean, norm_std, sign=False, config=None):
+    def __init__(self, norm_mean, norm_std, sign=False, config=None, is_train=True):
         self.config = config
         self.norm_mean = norm_mean
         self.norm_std = norm_std
         self.sign = sign
+        self.is_train = is_train
 
     def __call__(self, rgb, gt, modal_x):
-        rgb, gt, modal_x = random_mirror(rgb, gt, modal_x)
-        # if self.config.train_scale_array is not None:
-        #     rgb, gt, modal_x, scale = random_scale(
-        #         rgb, gt, modal_x, self.config.train_scale_array
-        #     )
+        if self.is_train:
+            rgb, gt, modal_x = random_mirror(rgb, gt, modal_x)
 
         rgb = normalize(rgb, self.norm_mean, self.norm_std)
         if self.sign:
@@ -97,7 +95,7 @@ class TravTransform(object):
             )  # [0.5,0.5,0.5]
         else:
             modal_x = normalize_depth(modal_x, 3.7124, 1.4213)
-        # gt = gt / 255
+
         return rgb.transpose(2, 0, 1), gt, modal_x.transpose(1, 0)
 
 
@@ -413,12 +411,7 @@ def get_unlabeled_loaders(engine, dataset_class, config, labeled_csv, unlabeled_
     train_df = labeled_df[labeled_df['label'].notna() & (labeled_df['label'] != '')]
     val_df = pd.read_csv(unlabeled_csv)
     val_df.rename(columns={'depth_path': 'depth', 'img_path': 'image'}, inplace=True)
-    print(val_df[val_df['depth'].duplicated(keep=False)])  # no duplicated depths
-
-    if config.get('dataset', False) == 'Trav':
-        transform = TravTransform(config.norm_mean, config.norm_std, config.x_is_single_channel, config)
-    else:
-        transform = TrainPre(config.norm_mean, config.norm_std, config.x_is_single_channel, config)
+    # print(val_df[val_df['depth'].duplicated(keep=False)])  # no duplicated depths
 
     # Build data_setting
     data_setting = {
@@ -436,10 +429,12 @@ def get_unlabeled_loaders(engine, dataset_class, config, labeled_csv, unlabeled_
     }
 
     # Instantiate dataset class using overridden df
-    train_dataset = dataset_class(data_setting, train_df, transform=transform)
+    train_transform = TravTransform(config.norm_mean, config.norm_std, config.x_is_single_channel, config, True)
+    train_dataset = dataset_class(data_setting, train_df, transform=train_transform)
     train_dataset.df = train_df
 
-    val_dataset = dataset_class(data_setting, val_df, transform=transform)
+    val_transform = TravTransform(config.norm_mean, config.norm_std, config.x_is_single_channel, config, False)
+    val_dataset = dataset_class(data_setting, val_df, transform=val_transform)
     val_dataset.df = val_df
 
     # Sampler setup

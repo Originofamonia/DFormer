@@ -331,4 +331,4 @@ if __name__ == '__main__':
             save_dir=config.save_dir,
             sliding=args.sliding
         )
-        logger.log(f'csv path: {csv_path}')
+        logger.info(f'csv path: {csv_path}')
