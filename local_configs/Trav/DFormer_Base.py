@@ -15,8 +15,9 @@ C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 0.01
 C.shots = 5
-C.batch_size = 16  # cannot be more than num of classes for FSL
+C.batch_size = 2  # cannot be more than num of classes for FSL
 C.epochs = 120
+C.episodes_per_epoch = 100
 C.num_workers = 8
 C.train_scale_array = [0.5, 0.75, 1, 1.25, 1.5, 1.75]
 C.warm_up_epoch = 10
@@ -28,6 +29,7 @@ C.aux_rate = 0
 
 """Eval Config"""
 C.eval_iter = 25
+C.eval_iterations = 1000
 C.eval_stride_rate = 2 / 3
 C.eval_scale_array = [1]  # [0.75, 1, 1.25] #
 C.eval_flip = True  # False #

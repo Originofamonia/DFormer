@@ -233,3 +233,84 @@ class EncoderDecoder(nn.Module):
             return loss, out
         else:  # eval
             return out
+
+    def forward_meta(self, s_rgb, s_depth, s_mask, q_rgb, q_depth, q_gt=None):
+        """
+        Few-shot forward pass for 1-way segmentation.
+
+        Args:
+            s_rgb: [B, shots, 3, H, W]
+            s_depth: [B, shots, 1, H, W]
+            s_mask: [B, shots, H, W] (binary, foreground = 1)
+            q_rgb: [B, 3, H, W]
+            q_depth: [B, 1, H, W]
+            q_gt: [B, H, W] (optional; for computing loss)
+
+        Returns:
+            If qry_gt: (loss, logits), else: logits
+        """
+        B, S, img_C, img_H, img_W = s_rgb.shape  # batch, shots, channels, height, width
+        _, d_C, d_H, d_W = s_depth.shape
+
+        # Flatten support inputs for joint encoding
+        s_rgb = s_rgb.view(B * S, 3, img_H, img_W)
+        s_depth = s_depth.view(B * S, d_H, d_W)
+        s_mask = s_mask.view(B * S, img_H, img_W)
+        q_rgb = q_rgb.view(B, img_C, img_H, img_W)
+        q_depth = q_depth.view(B, d_H, d_W)
+        q_gt = q_gt.view(B, img_H, img_W)
+
+        # Combine for batch encoding
+        all_rgb = torch.cat([s_rgb, q_rgb], dim=0)     # [B*S + B, 3, H, W]
+        all_depth = torch.cat([s_depth, q_depth], dim=0)
+
+        feats = self.encode(all_rgb, all_depth)  # Assume feats[-1] is deepest
+        supp_feats = feats[-1][:B * S]  # [B*S, C, h', w']
+        qry_feats = feats[-1][B * S:]   # [B, C, h', w']
+        feat_size = qry_feats.shape[-2:]
+
+        # Compute per-image prototypes (foreground and background)
+        fg_protos = []
+        bg_protos = []
+
+        for i in range(B * S):
+            feat = supp_feats[i:i+1]  # [1, C, h', w']
+            fg_mask = (s_mask[i] == 1).float()
+            bg_mask = (s_mask[i] == 0).float()
+            fg_proto = self.get_masked_proto(feat, fg_mask)
+            bg_proto = self.get_masked_proto(feat, bg_mask)
+            fg_protos.append(fg_proto)
+            bg_protos.append(bg_proto)
+
+        # Average over shots to get class-level prototypes
+        fg_proto = torch.stack(fg_protos).view(B, S, -1).mean(dim=1, keepdim=True)  # [B, 1, C]
+        bg_proto = torch.stack(bg_protos).view(B, S, -1).mean(dim=1, keepdim=True)  # [B, 1, C]
+
+        # Cosine similarity prediction for each query image
+        logits_list = []
+        for i in range(B):
+            qry_feat = qry_feats[i:i+1]  # [1, C, h', w']
+            fg_sim = self.similarity(qry_feat, fg_proto[i])  # [1, h', w']
+            bg_sim = self.similarity(qry_feat, bg_proto[i])  # [1, h', w']
+            logit = torch.stack([bg_sim, fg_sim], dim=1)     # [1, 2, h', w']
+            logit = F.interpolate(logit, size=(img_H, img_W), mode='bilinear', align_corners=False)
+            logits_list.append(logit)
+
+        logits = torch.cat(logits_list, dim=0)  # [B, 2, H, W]
+
+        if q_gt is not None:
+            loss = self.criterion(logits, q_gt.long())
+            loss = loss[q_gt != 255].mean()
+            return loss, logits
+        else:
+            return logits
+    
+    def get_masked_proto(self, feat, mask):
+        feat = F.interpolate(feat, size=mask.shape[-2:], mode='bilinear', align_corners=False)
+        mask = mask[None, None, :, :].float()  # [1, 1, H, W]
+        masked = feat * mask
+        proto = masked.sum(dim=(2, 3)) / (mask.sum() + 1e-5)  # [1, C]
+        return proto
+
+    def similarity(self, feat, proto, scaler=20):
+        return F.cosine_similarity(feat, proto[..., None, None], dim=1) * scaler  # [B, H, W]

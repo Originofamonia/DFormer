@@ -141,21 +141,14 @@ class RGBXDataset(Dataset):
 
 
 class TravRGBDDataset(Dataset):
-    def __init__(self, setting, split_name, transform=None):
+    def __init__(self, setting, transform=None):
         super(TravRGBDDataset, self).__init__()
-        # self._split_name = split_name  # train, eval
         self._transform_gt = setting['transform_gt']
         self._train_source = setting['train_source']
         self._eval_source = setting['eval_source']
         self.class_names = setting['class_names']
         self.transform = transform
-        self.df = None  # Don't load here
-
-    def load_split(self, split_name):
-        if split_name == 'train':
-            self.df = pd.read_csv(self._train_source, index_col=0)
-        else:
-            self.df = pd.read_csv(self._eval_source, index_col=0)
+        self.df = None  # passed in, not loaded here
     
     def __len__(self):
         return len(self.df)
@@ -195,7 +188,7 @@ class TravRGBDDataset(Dataset):
 
 class TravRGBDLabeledDataset(TravRGBDDataset):
     def __init__(self, setting, df, transform=None):
-        super().__init__(setting, split_name='train', transform=transform)
+        super().__init__(setting, transform=transform)
         self.df = df
     
     def __getitem__(self, index):
@@ -331,3 +324,63 @@ class FewShotTravRGBDDataset(Dataset):
         """ Open an image file """
         return np.array(cv2.imread(filepath, mode), dtype=dtype)
 
+
+class FewShotTravDatasetBinary(Dataset):
+    def __init__(self, df_support, df_query, setting, transform=None,
+                 n_shots=1, n_queries=1, max_iters=1000):
+        super().__init__()
+        self.df_support = df_support.reset_index(drop=True)
+        self.df_query = df_query.reset_index(drop=True)
+        self.setting = setting
+        self.n_shots = n_shots
+        self.n_queries = n_queries
+        self.max_iters = max_iters
+
+        # Reuse your dataset class
+        self.support_dataset = TravRGBDLabeledDataset(setting, df=self.df_support, transform=transform)
+        self.query_dataset = TravRGBDLabeledDataset(setting, df=self.df_query, transform=transform)
+
+    def __len__(self):
+        return self.max_iters
+
+    def __getitem__(self, index):
+        # Sample support and query indices
+        support_indices = np.random.choice(len(self.df_support), size=self.n_shots, replace=False)
+        query_indices = np.random.choice(len(self.df_query), size=self.n_queries, replace=False)
+
+        # Load support data
+        support_images = []
+        support_labels = []
+        support_lasers = []
+        for i in support_indices:
+            sample = self.support_dataset[i]
+            support_images.append(sample['rgb'])   # [3, H, W]
+            support_labels.append(sample['gt'])    # [H, W]
+            support_lasers.append(sample['laser']) # [360, 1] assumed
+
+        # Load query data
+        query_images = []
+        query_labels = []
+        query_lasers = []
+        for i in query_indices:
+            sample = self.query_dataset[i]
+            query_images.append(sample['rgb'])
+            query_labels.append(sample['gt'])
+            query_lasers.append(sample['laser'])
+
+        # Stack tensors
+        support_images = torch.stack(support_images, dim=0)   # [n_shots, 3, H, W]
+        support_labels = torch.stack(support_labels, dim=0)   # [n_shots, H, W]
+        support_lasers = torch.stack(support_lasers, dim=0)   # [n_shots, 360, 1]
+        query_images = torch.stack(query_images, dim=0)       # [n_queries, 3, H, W]
+        query_labels = torch.stack(query_labels, dim=0)       # [n_queries, H, W]
+        query_lasers = torch.stack(query_lasers, dim=0)       # [n_queries, 360, 1]
+
+        return {
+            's_img': support_images,
+            's_gt': support_labels,
+            's_depth': support_lasers,
+            'q_img': query_images,
+            'q_gt': query_labels,
+            'q_depth': query_lasers
+        }
