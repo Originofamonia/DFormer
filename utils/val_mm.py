@@ -207,120 +207,50 @@ def evaluate(model, dataloader, config, device, engine, save_dir=None, sliding=F
     return all_metrics
 
 
-def fss_evaluate(fss, con_loss, dataloader, config, device, engine, 
-                 save_dir=None, sliding=False):
-    """
-    fss: few-shot segmentation
-    con_loss: contrastive loss, maybe no need in eval
-    """
-    print("Evaluating...")
-    fss.eval()
+def fss_evaluate(fss_model, dataloader, config, device, engine, save_dir=None):
+    print("Evaluating FSS model...")
+    fss_model.eval()
     n_classes = config.num_classes
     metrics = Metrics(n_classes, config.background, device)
+    is_main = not engine.distributed or engine.local_rank == 0
+    pbar = tqdm(enumerate(dataloader), total=len(dataloader)) if is_main else enumerate(dataloader)
+    for idx, batch in pbar:
+        if is_main and ((idx + 1) % len(dataloader) == 0 or idx == 0):
+            pbar.set_description(f"Validation Episode {idx + 1}/{len(dataloader)}")
 
-    for idx, batch in enumerate(dataloader):
-        if ((idx + 1) % int(len(dataloader)) == 0 or idx == 0) and (
-            (engine.distributed and (engine.local_rank == 0))
-            or (not engine.distributed)
-        ):
-            print(f"Validation Iter: {idx + 1} / {len(dataloader)}")
+        # Move data to device
+        s_rgb = batch["s_img"].cuda(non_blocking=True)
+        s_gt = batch["s_gt"].cuda(non_blocking=True)
+        s_depth = batch["s_depth"].cuda(non_blocking=True)
+        q_rgb = batch["q_img"].cuda(non_blocking=True)
+        q_gt = batch["q_gt"].cuda(non_blocking=True)
+        q_depth = batch["q_depth"].cuda(non_blocking=True)
 
-        s_imgs = batch['s_imgs'].to(device)
-        s_masks = batch['s_masks'].to(device)
-        s_depths = batch['s_depths'].to(device)
-        q_masks = batch['q_masks'].to(device)
-        q_imgs = batch['q_imgs'].to(device)
-        q_depths = batch['q_depths'].to(device)
-        class_label = batch['class']
-        # if len(rgb.shape) == 3:
-        #     rgb = rgb.unsqueeze(0)
-        # if len(laser.shape) == 3:
-        #     laser = laser.unsqueeze(0)
-        # if len(gt.shape) == 2:
-        #     gt = gt.unsqueeze(0)
-        # # print(images.shape,labels.shape)
-        # rgb = [rgb.to(device), laser.to(device)]
-        # gt = gt.to(device)
-        
-        q_out4, q_logits, prototypes = fss(s_imgs, s_depths, s_masks, q_imgs, q_depths)
-        # print(preds.shape,labels.shape)
-        B, C, H, W = q_masks.shape
-        if C == 1:
-            q_masks = q_masks.view(-1, H, W)
-        metrics.update(q_logits, q_masks)
-        # for i in range(B):
-        #     metrics.update(preds[i].unsqueeze(0), labels[i].unsqueeze(0))
-        # metrics.update(preds, labels)
+        # Forward
+        loss, q_logits = fss_model.forward_meta(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)
 
-        if save_dir is not None:
-            palette = [
-                [128, 64, 128],
-                [244, 35, 232],
-                [70, 70, 70],
-                [102, 102, 156],
-                [190, 153, 153],
-                [153, 153, 153],
-                [250, 170, 30],
-                [220, 220, 0],
-                [107, 142, 35],
-                [152, 251, 152],
-                [70, 130, 180],
-                [220, 20, 60],
-                [255, 0, 0],
-                [0, 0, 142],
-                [0, 0, 70],
-                [0, 60, 100],
-                [0, 80, 100],
-                [0, 0, 230],
-                [119, 11, 32],
-            ]
-            palette = np.array(palette, dtype=np.uint8)
-            # cmap = ListedColormap(palette)
-            names = (
-                batch["fn"][0]
-                .replace(".jpg", "")
-                .replace(".png", "")
-                .replace("datasets/", "")
-            )
-            save_name = save_dir + "/" + names + "_pred.png"
+        # Update metrics
+        metrics.update(q_logits, q_gt)
+
+        # Save prediction visualization
+        if save_dir is not None and is_main:
+            preds = q_logits.argmax(dim=1).cpu().numpy().astype(np.uint8)
+            palette = np.load("./utils/nyucmap.npy") if config.dataset_name in ["NYUDepthv2", "SUNRGBD"] else None
+            names = batch["fn"][0].replace(".jpg", "").replace(".png", "").replace("datasets/", "")
+            save_name = f"{save_dir}/{names}_pred.png"
             pathlib.Path(save_name).parent.mkdir(parents=True, exist_ok=True)
-            preds = preds.argmax(dim=1).cpu().squeeze().numpy().astype(np.uint8)
-            if config.dataset_name in ["KITTI-360", "EventScape"]:
-                preds = palette[preds]
-                plt.imsave(save_name, preds)
-            elif config.dataset_name in ["NYUDepthv2", "SUNRGBD"]:
-                palette = np.load("./utils/nyucmap.npy")
-                preds = palette[preds]
-                plt.imsave(save_name, preds)
-            elif config.dataset_name in ["MFNet"]:
-                palette = np.array(
-                    [
-                        [0, 0, 0],
-                        [64, 0, 128],
-                        [64, 64, 0],
-                        [0, 128, 192],
-                        [0, 0, 192],
-                        [128, 128, 0],
-                        [64, 64, 128],
-                        [192, 128, 128],
-                        [192, 64, 0],
-                    ],
-                    dtype=np.uint8,
-                )
-                preds = palette[preds]
-                plt.imsave(save_name, preds)
+            if palette is not None:
+                plt.imsave(save_name, palette[preds[0]])
             else:
-                assert 1 == 2
+                plt.imsave(save_name, preds[0])
 
-    # ious, miou = metrics.compute_iou()
-    # acc, macc = metrics.compute_pixel_acc()
-    # f1, mf1 = metrics.compute_f1()
+    # Gather results
     if engine.distributed:
         all_metrics = [None for _ in range(engine.world_size)]
-        # all_predictions = Metrics(n_classes, config.background, device)
-        torch.distributed.all_gather_object(all_metrics, metrics)  # list of lists
+        torch.distributed.all_gather_object(all_metrics, metrics)
     else:
         all_metrics = metrics
+
     return all_metrics
 
 

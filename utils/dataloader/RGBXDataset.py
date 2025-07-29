@@ -362,25 +362,22 @@ class FewShotTravDatasetBinary(Dataset):
         query_images = []
         query_labels = []
         query_lasers = []
-        for i in query_indices:
-            sample = self.query_dataset[i]
-            query_images.append(sample['rgb'])
-            query_labels.append(sample['gt'])
-            query_lasers.append(sample['laser'])
+        # for i in query_indices:
+        q_sample = self.query_dataset[query_indices[0]]
+        query_images.append(q_sample['rgb'])  # [n_queries, 3, H, W]
+        query_labels.append(q_sample['gt'])  # [n_queries, H, W]
+        query_lasers.append(q_sample['laser'])  # [n_queries, 360, 1]
 
         # Stack tensors
         support_images = torch.stack(support_images, dim=0)   # [n_shots, 3, H, W]
         support_labels = torch.stack(support_labels, dim=0)   # [n_shots, H, W]
         support_lasers = torch.stack(support_lasers, dim=0)   # [n_shots, 360, 1]
-        query_images = torch.stack(query_images, dim=0)       # [n_queries, 3, H, W]
-        query_labels = torch.stack(query_labels, dim=0)       # [n_queries, H, W]
-        query_lasers = torch.stack(query_lasers, dim=0)       # [n_queries, 360, 1]
 
         return {
             's_img': support_images,
             's_gt': support_labels,
             's_depth': support_lasers,
-            'q_img': query_images,
-            'q_gt': query_labels,
-            'q_depth': query_lasers
+            'q_img': q_sample['rgb'],
+            'q_gt': q_sample['gt'],
+            'q_depth': q_sample['laser']
         }

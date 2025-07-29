@@ -20,7 +20,7 @@ C.epochs = 120
 C.episodes_per_epoch = 100
 C.num_workers = 8
 C.train_scale_array = [0.5, 0.75, 1, 1.25, 1.5, 1.75]
-C.warm_up_epoch = 10
+C.warm_up_epoch = 5
 C.fix_bias = True
 C.bn_eps = 1e-3
 C.bn_momentum = 0.1
@@ -37,7 +37,7 @@ C.eval_crop_size = [480, 640]  # [height weight]
 
 """Store Config"""
 C.checkpoint_start_epoch = 250
-C.checkpoint_step = 5
+C.checkpoint_step = 10
 
 """Path Config"""
 C.log_dir = osp.abspath("checkpoints/trained/trav/" + C.backbone)

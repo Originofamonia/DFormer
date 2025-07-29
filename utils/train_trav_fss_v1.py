@@ -28,7 +28,7 @@ from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
 from utils.pyt_utils import all_reduce_tensor
-from utils.val_mm import infer_unlabeled_masks
+from utils.val_mm import fss_evaluate, evaluate_msf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=f'local_configs.Trav.DFormer_Base', type=str, help="train config file path")
@@ -158,24 +158,20 @@ if __name__ == '__main__':
             syncbn=args.syncbn,
         )
 
-        base_lr = config.lr
-        if engine.distributed:
-            base_lr = config.lr
-
         params_list = []
-        params_list = group_weight(params_list, model, BatchNorm2d, base_lr)
+        params_list = group_weight(params_list, model, BatchNorm2d, config.lr)
 
         if config.optimizer == "AdamW":
             optimizer = torch.optim.AdamW(
                 params_list,
-                lr=base_lr,
+                lr=config.lr,
                 betas=(0.9, 0.999),
                 weight_decay=config.weight_decay,
             )
         elif config.optimizer == "SGDM":
             optimizer = torch.optim.SGD(
                 params_list,
-                lr=base_lr,
+                lr=config.lr,
                 momentum=config.momentum,
                 weight_decay=config.weight_decay,
             )
@@ -218,6 +214,7 @@ if __name__ == '__main__':
             compiled_model = model
         miou, best_miou = 0.0, 0.0
         train_timer = gpu_timer()
+        eval_timer = gpu_timer()
 
         if args.amp:
             scaler = torch.amp.GradScaler()
@@ -225,13 +222,13 @@ if __name__ == '__main__':
         train_loader, val_loader, train_sampler, val_sampler = get_fewshot_loaders(engine, FewShotTravDatasetBinary, config, 
             s_csv="/home/edward/data/segmentation_indoor_images/labeled_rgbd_pairs.csv",
             q_csv='/home/edward/data/trav/unlabeled_masks.csv')
-        # wandb.init(project="MM-FSS", config=config)
+        wandb.init(project="MM-FSS", config=config)
 
         logger.info(f"Val dataset len:{len(val_loader)*int(args.gpus)}")
         niters_per_epoch = len(train_loader)
         total_iteration = config.epochs * niters_per_epoch
         lr_policy = WarmUpPolyLR(
-            base_lr,
+            config.lr,
             config.lr_power,
             total_iteration,
             len(train_loader) * config.warm_up_epoch,
@@ -327,13 +324,147 @@ if __name__ == '__main__':
                 del loss
             train_timer.stop()
 
-        csv_path = infer_unlabeled_masks(
-            model,
-            val_loader,
-            config,
-            device,
-            engine,
-            save_dir=config.save_dir,
-            sliding=args.sliding
-        )
-        logger.info(f'csv path: {csv_path}')
+            if is_eval(epoch, config):
+                eval_timer.start()
+                torch.cuda.empty_cache()
+                if engine.distributed:
+                    with torch.no_grad():
+                        model.eval()
+                        device = torch.device("cuda")
+                        if args.val_amp:
+                            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                                if args.mst:
+                                    all_metrics = evaluate_msf(
+                                        model,
+                                        val_loader,
+                                        config,
+                                        device,
+                                        [0.5, 0.75, 1.0, 1.25, 1.5],
+                                        True,
+                                        engine,
+                                        sliding=args.sliding,
+                                    )
+                                else:
+                                    all_metrics = fss_evaluate(
+                                        model,
+                                        val_loader,
+                                        config,
+                                        device,
+                                        engine,
+                                        # sliding=args.sliding,
+                                    )
+                        else:
+                            if args.mst:
+                                all_metrics = evaluate_msf(
+                                    model,
+                                    val_loader,
+                                    config,
+                                    device,
+                                    [0.5, 0.75, 1.0, 1.25, 1.5],
+                                    True,
+                                    engine,
+                                    sliding=args.sliding,
+                                )
+                            else:
+                                all_metrics = fss_evaluate(
+                                    model,
+                                    val_loader,
+                                    config,
+                                    device,
+                                    engine,
+                                )
+                        if engine.local_rank == 0:
+                            metric = all_metrics[0]
+                            for other_metric in all_metrics[1:]:
+                                metric.update_hist(other_metric.hist)
+                            ious, miou = metric.compute_iou()
+                            acc, macc = metric.compute_pixel_acc()
+                            f1, mf1 = metric.compute_f1()
+                            if miou > best_miou:
+                                best_miou = miou
+                                engine.save_and_link_checkpoint(
+                                    config.log_dir,
+                                    config.log_dir,
+                                    config.log_dir_link,
+                                    infor="_miou_" + str(miou),
+                                    metric=miou,
+                                )
+                            logger.info(f"miou: {miou}; best: {best_miou}")
+                elif not engine.distributed:
+                    with torch.no_grad():
+                        model.eval()
+                        device = torch.device("cuda")
+                        if args.val_amp:
+                            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                                if args.mst:
+                                    metric = evaluate_msf(
+                                        model,
+                                        val_loader,
+                                        config,
+                                        device,
+                                        [0.5, 0.75, 1.0, 1.25, 1.5],
+                                        True,
+                                        engine,
+                                        sliding=args.sliding,
+                                    )
+                                else:  # yes
+                                    metric = fss_evaluate(
+                                        model,
+                                        val_loader,
+                                        config,
+                                        device,
+                                        engine,
+                                        # sliding=args.sliding,
+                                    )
+                        else:
+                            if args.mst:
+                                metric = evaluate_msf(
+                                    model,
+                                    val_loader,
+                                    config,
+                                    device,
+                                    [0.5, 0.75, 1.0, 1.25, 1.5],
+                                    True,
+                                    engine,
+                                    sliding=args.sliding,
+                                )
+                            else:
+                                metric = fss_evaluate(
+                                    model,
+                                    val_loader,
+                                    config,
+                                    device,
+                                    engine,
+                                    # sliding=args.sliding,
+                                )
+                        ious, miou = metric.compute_iou()
+                        acc, macc = metric.compute_pixel_acc()
+                        f1, mf1 = metric.compute_f1()
+                        wandb.log({
+                            "epoch": epoch,
+                            "mIoU": miou,
+                            "mean Acc": macc,
+                            "mean F1": mf1,
+                            "pixel Acc": acc,
+                            "F1_cls_0": f1[0],
+                            "F1_cls_1": f1[1],
+                            "IoU_cls_0": ious[0],
+                            "IoU_cls_1": ious[1],
+                            "Acc_cls_0": acc[0],
+                            "Acc_cls_1": acc[1],
+                        })
+
+                    if miou > best_miou:
+                        best_miou = miou
+                        engine.save_and_link_checkpoint(
+                            config.log_dir,
+                            config.log_dir,
+                            config.log_dir_link,
+                            infor="_miou_" + str(miou),
+                            metric=miou,
+                        )
+                    logger.info(f"miou: {miou}; best: {best_miou}")
+                logger.info(
+                    f"Epoch {epoch} validation result: mIoU {miou}, best mIoU {best_miou}"
+                )
+                eval_timer.stop()
