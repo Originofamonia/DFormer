@@ -269,6 +269,11 @@ class DFormer(BaseModule):
             state_dict = {k[7:]: v for k, v in state_dict.items()}
 
         load_state_dict(self, state_dict, strict=False)
+        # Freeze layers that were successfully loaded
+        for name, param in self.named_parameters():
+            # If the parameter was in the pretrained state dict
+            if any(name == k or name.startswith(k + ".") for k in state_dict.keys()):
+                param.requires_grad = False  # Freeze it
 
     def forward(self, x, x_e):
         if x_e is None:
@@ -419,6 +424,11 @@ class DFormerTrav(BaseModule):
             state_dict = {k[7:]: v for k, v in state_dict.items()}
 
         load_state_dict(self, state_dict, strict=False)
+        # Freeze layers that were successfully loaded
+        for name, param in self.named_parameters():
+            # If the parameter was in the pretrained state dict
+            if any(name == k or name.startswith(k + ".") for k in state_dict.keys()):
+                param.requires_grad = False  # Freeze it
 
     def forward(self, x, x_e):
         if x_e is None:

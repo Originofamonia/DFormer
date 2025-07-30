@@ -157,7 +157,12 @@ if __name__ == '__main__':
             norm_layer=BatchNorm2d,
             syncbn=args.syncbn,
         )
+        num_total = sum(p.numel() for p in model.parameters())
+        num_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+        logger.info(f"Total parameters: {num_total:,}")
+        logger.info(f"Trainable parameters: {num_trainable:,}")
+        logger.info(f"Frozen parameters: {num_total - num_trainable:,}")
         params_list = []
         params_list = group_weight(params_list, model, BatchNorm2d, config.lr)
 
@@ -206,7 +211,7 @@ if __name__ == '__main__':
             "eval_source": config.eval_source,
             "class_names": config.class_names,
         }
-        if args.compile:
+        if args.compile:  # False
             compiled_model = torch.compile(
                 model, backend="inductor", mode=args.compile_mode
             )
@@ -219,10 +224,10 @@ if __name__ == '__main__':
         if args.amp:
             scaler = torch.amp.GradScaler()
         model = compiled_model
+        # TODO: paths should be from config
         train_loader, val_loader, train_sampler, val_sampler = get_fewshot_loaders(engine, FewShotTravDatasetBinary, config, 
             s_csv="/home/edward/data/segmentation_indoor_images/labeled_rgbd_pairs.csv",
             q_csv='/home/edward/data/trav/unlabeled_masks.csv')
-        wandb.init(project="MM-FSS", config=config)
 
         logger.info(f"Val dataset len:{len(val_loader)*int(args.gpus)}")
         niters_per_epoch = len(train_loader)
@@ -236,7 +241,7 @@ if __name__ == '__main__':
         engine.register_state(dataloader=train_loader, model=model, optimizer=optimizer)
         if engine.continue_state_object:
             engine.restore_checkpoint()
-
+        wandb.init(project="MM-FSS", config=config)
         for epoch in range(engine.state.epoch, config.epochs + 1):
             model.train()
             i = 0

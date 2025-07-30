@@ -130,7 +130,7 @@ class EncoderDecoder(nn.Module):
         
         elif cfg.decoder == 'ham': # True
             logger.info('Using Ham Decoder')
-            print(cfg.num_classes)
+            logger.info(cfg.num_classes)
             from .decoders.ham_head import LightHamHead as DecoderHead
             # from mmseg.models.decode_heads.ham_head import LightHamHead as DecoderHead
             self.decode_head = DecoderHead(in_channels=self.channels[1:], num_classes=cfg.num_classes, in_index=[1,2,3],norm_cfg=norm_cfg, channels=cfg.decoder_embed_dim)
@@ -178,7 +178,7 @@ class EncoderDecoder(nn.Module):
     
     def init_weights(self, cfg, pretrained=None):
         if pretrained:
-            logger.info('Loading pretrained model: {}'.format(pretrained))
+            logger.info(f'Loading pretrained model: {pretrained}')
             self.backbone.init_weights(pretrained=pretrained)
         logger.info('Initing weights ...')
         init_weight(self.decode_head, nn.init.kaiming_normal_,

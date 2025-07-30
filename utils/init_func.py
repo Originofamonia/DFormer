@@ -45,7 +45,6 @@ def group_weight(weight_group, module, norm_layer, lr):
             or isinstance(m, nn.BatchNorm3d)
             or isinstance(m, nn.GroupNorm)
             or isinstance(m, nn.LayerNorm)
-            # or isinstance(m, LayerNorm)
         ):
             if m.weight is not None:
                 group_no_decay.append(m.weight)
