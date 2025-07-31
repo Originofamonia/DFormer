@@ -346,7 +346,6 @@ class DFormerTrav(BaseModule):
         mlp_ratios=[8, 8, 4, 4], num_heads=(2, 4, 10, 16), last_block=[50,50,50,50], 
         drop_path_rate=0.1, init_cfg=None):
         super().__init__()
-        print(drop_path_rate)
         self.depths = depths
         self.init_cfg = init_cfg
         self.out_indices = out_indices
@@ -424,11 +423,12 @@ class DFormerTrav(BaseModule):
             state_dict = {k[7:]: v for k, v in state_dict.items()}
 
         load_state_dict(self, state_dict, strict=False)
+        # No, don't freeze here
         # Freeze layers that were successfully loaded
-        for name, param in self.named_parameters():
-            # If the parameter was in the pretrained state dict
-            if any(name == k or name.startswith(k + ".") for k in state_dict.keys()):
-                param.requires_grad = False  # Freeze it
+        # for name, param in self.named_parameters():
+        #     # If the parameter was in the pretrained state dict
+        #     if any(name == k or name.startswith(k + ".") for k in state_dict.keys()):
+        #         param.requires_grad = False  # Freeze it
 
     def forward(self, x, x_e):
         if x_e is None:

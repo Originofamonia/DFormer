@@ -116,9 +116,9 @@ class EncoderDecoder(nn.Module):
             norm_cfg=dict(type='BN', requires_grad=True)
 
         if cfg.drop_path_rate is not None:
-            self.backbone = backbone(drop_path_rate=cfg.drop_path_rate, norm_cfg=norm_cfg)
+            self.encoder_backbone = backbone(drop_path_rate=cfg.drop_path_rate, norm_cfg=norm_cfg)
         else:
-            self.backbone = backbone(drop_path_rate=0.1, norm_cfg=norm_cfg)
+            self.encoder_backbone = backbone(drop_path_rate=0.1, norm_cfg=norm_cfg)
         
 
         self.aux_head = None
@@ -132,7 +132,6 @@ class EncoderDecoder(nn.Module):
             logger.info('Using Ham Decoder')
             logger.info(cfg.num_classes)
             from .decoders.ham_head import LightHamHead as DecoderHead
-            # from mmseg.models.decode_heads.ham_head import LightHamHead as DecoderHead
             self.decode_head = DecoderHead(in_channels=self.channels[1:], num_classes=cfg.num_classes, in_index=[1,2,3],norm_cfg=norm_cfg, channels=cfg.decoder_embed_dim)
             from .decoders.fcnhead import FCNHead
             if cfg.aux_rate!=0:
@@ -179,7 +178,7 @@ class EncoderDecoder(nn.Module):
     def init_weights(self, cfg, pretrained=None):
         if pretrained:
             logger.info(f'Loading pretrained model: {pretrained}')
-            self.backbone.init_weights(pretrained=pretrained)
+            self.encoder_backbone.init_weights(pretrained=pretrained)
         logger.info('Initing weights ...')
         init_weight(self.decode_head, nn.init.kaiming_normal_,
                 self.norm_layer, cfg.bn_eps, cfg.bn_momentum,
@@ -194,7 +193,7 @@ class EncoderDecoder(nn.Module):
         map of the same size as input."""
         orisize = rgb.shape
         # print('builder',rgb.shape,modal_x.shape)
-        x = self.backbone(rgb, modal_x)
+        x = self.encoder_backbone(rgb, modal_x)
         if self.cfg.decoder == 'nl_near_far':
             out = self.decode_head.forward(x, modal_x=modal_x)
         else:  # True
@@ -207,7 +206,7 @@ class EncoderDecoder(nn.Module):
         return out  # [B, 2, 480, 640]
     
     def encode(self, rgb, modal_x):
-        return self.backbone(rgb, modal_x)
+        return self.encoder_backbone(rgb, modal_x)
     
     def decode(self, x, rgb):
         orisize = rgb.shape

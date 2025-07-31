@@ -70,6 +70,53 @@ def group_weight(weight_group, module, norm_layer, lr):
     return weight_group
 
 
+def get_trav_trainable_layers(weight_group, module, norm_layer, lr, logger):
+    group_decay = []
+    group_no_decay = []
+    total_trainable_params = 0
+    depth_module = module.encoder_backbone.attn_expand_e
+    decoder_module = module.decode_head
+    for submodule in [depth_module, decoder_module]:
+        for m in submodule.modules():
+            total_trainable_params += sum(p.numel() for p in m.parameters() if p.requires_grad)
+            if isinstance(m, nn.Linear):
+                group_decay.append(m.weight)
+                if m.bias is not None:
+                    group_no_decay.append(m.bias)
+            elif isinstance(
+                m, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose2d, nn.ConvTranspose3d)
+            ):
+                group_decay.append(m.weight)
+                if m.bias is not None:
+                    group_no_decay.append(m.bias)
+            elif (
+                isinstance(m, norm_layer)
+                or isinstance(m, nn.BatchNorm1d)
+                or isinstance(m, nn.BatchNorm2d)
+                or isinstance(m, nn.BatchNorm3d)
+                or isinstance(m, nn.GroupNorm)
+                or isinstance(m, nn.LayerNorm)
+            ):
+                if m.weight is not None:
+                    group_no_decay.append(m.weight)
+                if m.bias is not None:
+                    group_no_decay.append(m.bias)
+            elif isinstance(m, nn.Parameter):
+                group_decay.append(m)
+
+    logger.info(
+        (
+        f"Weight Decay: {len(group_decay)}; "
+        f"Weight No Decay: {len(group_no_decay)}; "
+        f"Total: {len(list(module.parameters()))}; "
+        f"Trainable parameters: {total_trainable_params:,}"
+        )
+    )
+    weight_group.append(dict(params=group_decay, lr=lr))
+    weight_group.append(dict(params=group_no_decay, weight_decay=0.0, lr=lr))
+    return weight_group
+
+
 def configure_optimizers(model, lr, weight_decay):
     """
     This long function is unfortunately doing something very simple and is being very defensive:
