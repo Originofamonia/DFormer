@@ -408,9 +408,11 @@ class DFormerTrav(BaseModule):
     def init_weights(self, pretrained):
         _state_dict = torch.load(pretrained, weights_only=False)
         if 'state_dict_ema' in _state_dict.keys():
-            _state_dict=_state_dict['state_dict_ema']
+            _state_dict = _state_dict['state_dict_ema']
+        elif 'model' in _state_dict.keys():
+            _state_dict = _state_dict['model']
         else:
-            _state_dict=_state_dict['state_dict']
+            _state_dict = _state_dict['state_dict']
 
         state_dict = OrderedDict()
         for k, v in _state_dict.items():

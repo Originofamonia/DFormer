@@ -4,7 +4,7 @@ from .._base_.datasets.Trav import *
 C.dataset_name = "NYUDepthv2"
 C.dataset_path = '/home/edward/data/trav'
 C.backbone = "DFormerTrav-Base"  # Remember change the path below.
-C.pretrained_model = "checkpoints/pretrained/DFormer_Base.pth.tar"
+C.pretrained_model = "checkpoints/pretrained/DFormerTrav_Base_epoch-1_miou_61.19.pt"
 C.decoder = "ham"
 C.decoder_embed_dim = 512
 C.optimizer = "AdamW"

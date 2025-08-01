@@ -23,7 +23,7 @@ from utils.dataloader.dataloader import get_fewshot_loaders
 from models.builder import EncoderDecoder as segmodel
 from utils.dataloader.RGBXDataset import FewShotTravDatasetBinary
 
-from utils.init_func import get_trav_trainable_layers
+from utils.init_func import get_trav_trainable_layers, group_weight
 from utils.lr_policy import WarmUpPolyLR
 from utils.engine.engine import Engine
 from utils.engine.logger import get_logger
@@ -164,6 +164,7 @@ if __name__ == '__main__':
         
         params_list = []
         params_list = get_trav_trainable_layers(params_list, model, BatchNorm2d, config.lr, logger)
+        # params_list = group_weight(params_list, model, BatchNorm2d, config.lr)
 
         if config.optimizer == "AdamW":
             optimizer = torch.optim.AdamW(
