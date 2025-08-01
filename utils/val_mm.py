@@ -219,12 +219,12 @@ def fss_evaluate(fss_model, dataloader, config, device, engine, save_dir=None):
             pbar.set_description(f"Validation Episode {idx + 1}/{len(dataloader)}")
 
         # Move data to device
-        s_rgb = batch["s_img"].cuda(non_blocking=True)
-        s_gt = batch["s_gt"].cuda(non_blocking=True)
-        s_depth = batch["s_depth"].cuda(non_blocking=True)
-        q_rgb = batch["q_img"].cuda(non_blocking=True)
-        q_gt = batch["q_gt"].cuda(non_blocking=True)
-        q_depth = batch["q_depth"].cuda(non_blocking=True)
+        s_rgb = batch["s_img"].to(device, non_blocking=True)
+        s_gt = batch["s_gt"].to(device, non_blocking=True)
+        s_depth = batch["s_depth"].to(device, non_blocking=True)
+        q_rgb = batch["q_img"].to(device, non_blocking=True)
+        q_gt = batch["q_gt"].to(device, non_blocking=True)
+        q_depth = batch["q_depth"].to(device, non_blocking=True)
 
         # Forward
         loss, q_logits = fss_model.forward_meta(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)

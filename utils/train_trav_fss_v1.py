@@ -33,11 +33,10 @@ from utils.val_mm import fss_evaluate, evaluate_msf
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=f'local_configs.Trav.DFormer_Base', type=str, help="train config file path")
 parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
-parser.add_argument('--device', type=str, default='cuda:0')  # Change to 'cuda:1' for GPU 1
+parser.add_argument('--device', type=str, default='cuda:1')  # Change to 'cuda:1' for GPU 0
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
 parser.add_argument("--epochs", default=0)
 parser.add_argument("--show_image", "-s", default=False, action="store_true")
-# parser.add_argument("--save_path", type=str, default='')
 parser.add_argument("--checkpoint_dir")
 parser.add_argument("--continue_fpath")
 parser.add_argument("--sliding", default=False, action=argparse.BooleanOptionalAction)
@@ -151,12 +150,13 @@ if __name__ == '__main__':
             BatchNorm2d = nn.BatchNorm2d
             logger.info("using regular bn")
 
+        device = torch.device(args.device if torch.cuda.is_available() else "cpu")
         model = segmodel(
             cfg=config,
             criterion=criterion,
             norm_layer=BatchNorm2d,
             syncbn=args.syncbn,
-        )
+        ).to(device)
         num_total = sum(p.numel() for p in model.parameters())
         num_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -192,10 +192,7 @@ if __name__ == '__main__':
                     device_ids=[engine.local_rank],
                     output_device=engine.local_rank,
                     find_unused_parameters=False,
-                )
-        else:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            model.to(device)
+                )            
 
         val_data_setting = {
             "rgb_root": config.rgb_root_folder,
@@ -261,12 +258,12 @@ if __name__ == '__main__':
                 q_gt = batch["q_gt"]
                 q_depth = batch["q_depth"]
 
-                s_rgb = s_rgb.cuda(non_blocking=True)
-                s_gt = s_gt.cuda(non_blocking=True)
-                s_depth = s_depth.cuda(non_blocking=True)
-                q_rgb = q_rgb.cuda(non_blocking=True)
-                q_gt = q_gt.cuda(non_blocking=True)
-                q_depth = q_depth.cuda(non_blocking=True)
+                s_rgb = s_rgb.cuda(device, non_blocking=True)
+                s_gt = s_gt.cuda(device, non_blocking=True)
+                s_depth = s_depth.cuda(device, non_blocking=True)
+                q_rgb = q_rgb.cuda(device, non_blocking=True)
+                q_gt = q_gt.cuda(device, non_blocking=True)
+                q_depth = q_depth.cuda(device, non_blocking=True)
 
                 if args.amp:
                     with torch.autocast(device_type="cuda", dtype=torch.float16):
@@ -335,7 +332,6 @@ if __name__ == '__main__':
                 if engine.distributed:
                     with torch.no_grad():
                         model.eval()
-                        device = torch.device("cuda")
                         if args.val_amp:
                             with torch.autocast(device_type="cuda", dtype=torch.float16):
                                 if args.mst:
@@ -398,7 +394,6 @@ if __name__ == '__main__':
                 elif not engine.distributed:
                     with torch.no_grad():
                         model.eval()
-                        device = torch.device("cuda")
                         if args.val_amp:
                             with torch.autocast(device_type="cuda", dtype=torch.float16):
                                 if args.mst:

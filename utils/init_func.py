@@ -75,8 +75,9 @@ def get_trav_trainable_layers(weight_group, module, norm_layer, lr, logger):
     group_no_decay = []
     total_trainable_params = 0
     depth_module = module.encoder_backbone.attn_expand_e
+    fusion_stages = module.encoder_backbone.stages[0]
     decoder_module = module.decode_head
-    for submodule in [depth_module, decoder_module]:
+    for submodule in [depth_module, fusion_stages, decoder_module]:
         for m in submodule.modules():
             total_trainable_params += sum(p.numel() for p in m.parameters() if p.requires_grad)
             if isinstance(m, nn.Linear):
