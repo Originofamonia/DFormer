@@ -132,7 +132,9 @@ class EncoderDecoder(nn.Module):
             logger.info('Using Ham Decoder')
             logger.info(cfg.num_classes)
             from .decoders.ham_head import LightHamHead as DecoderHead
-            self.decode_head = DecoderHead(in_channels=self.channels[1:], num_classes=cfg.num_classes, in_index=[1,2,3],norm_cfg=norm_cfg, channels=cfg.decoder_embed_dim)
+            self.decode_head = DecoderHead(in_channels=self.channels[1:], num_classes=cfg.num_classes, 
+                                           in_index=[1,2,3], norm_cfg=norm_cfg, channels=cfg.decoder_embed_dim, 
+                                           device=cfg.device)
             if cfg.aux_rate != 0:
                 from .decoders.fcnhead import FCNHead
                 self.aux_index = 2
@@ -256,7 +258,8 @@ class EncoderDecoder(nn.Module):
         s_mask = s_mask.view(B * S, img_H, img_W)
         q_rgb = q_rgb.view(B, img_C, img_H, img_W)
         q_depth = q_depth.view(B, d_H, d_W)
-        q_gt = q_gt.view(B, img_H, img_W)
+        if q_gt is not None:
+            q_gt = q_gt.view(B, img_H, img_W)
 
         # Combine for batch encoding
         all_rgb = torch.cat([s_rgb, q_rgb], dim=0)     # [B*S + B, 3, H, W]

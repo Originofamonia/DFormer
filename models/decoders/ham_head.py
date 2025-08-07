@@ -101,14 +101,14 @@ class _MatrixDecomposition2DBase(nn.Module):
 
 
 class NMF2D(_MatrixDecomposition2DBase):
-    def __init__(self, args=dict()):
+    def __init__(self, args=dict(), **kwargs):
         super().__init__(args)
-
+        self.args = args
         self.inv_t = 1
 
     def _build_bases(self, B, S, D, R, cuda=False):
         if cuda:
-            bases = torch.rand((B * S, D, R)).cuda()
+            bases = torch.rand((B * S, D, R)).to(self.args['device'])
         else:
             bases = torch.rand((B * S, D, R))
 
@@ -160,7 +160,7 @@ class Hamburger(nn.Module):
             norm_cfg=None,
             act_cfg=None
         )
-
+        ham_kwargs['device'] = kwargs['device']
         self.ham = NMF2D(ham_kwargs)
 
         self.ham_out = ConvModule(
