@@ -133,8 +133,8 @@ class EncoderDecoder(nn.Module):
             logger.info(cfg.num_classes)
             from .decoders.ham_head import LightHamHead as DecoderHead
             self.decode_head = DecoderHead(in_channels=self.channels[1:], num_classes=cfg.num_classes, in_index=[1,2,3],norm_cfg=norm_cfg, channels=cfg.decoder_embed_dim)
-            from .decoders.fcnhead import FCNHead
-            if cfg.aux_rate!=0:
+            if cfg.aux_rate != 0:
+                from .decoders.fcnhead import FCNHead
                 self.aux_index = 2
                 self.aux_rate = cfg.aux_rate
                 print('aux rate is set to',str(self.aux_rate))
@@ -220,7 +220,6 @@ class EncoderDecoder(nn.Module):
         return out
 
     def forward(self, rgb, modal_x=None, label=None):
-        # print('builder',rgb.shape,modal_x.shape)
         if self.aux_head:  # False
             out, aux_fm = self.encode_decode(rgb, modal_x)
         else:
@@ -233,7 +232,7 @@ class EncoderDecoder(nn.Module):
         else:  # eval
             return out
 
-    def forward_meta(self, s_rgb, s_depth, s_mask, q_rgb, q_depth, q_gt=None):
+    def meta_forward(self, s_rgb, s_depth, s_mask, q_rgb, q_depth, q_gt=None):
         """
         Few-shot forward pass for 1-way segmentation.
 
@@ -249,7 +248,7 @@ class EncoderDecoder(nn.Module):
             If qry_gt: (loss, logits), else: logits
         """
         B, S, img_C, img_H, img_W = s_rgb.shape  # batch, shots, channels, height, width
-        _, d_C, d_H, d_W = s_depth.shape
+        _, _, d_H, d_W = s_depth.shape
 
         # Flatten support inputs for joint encoding
         s_rgb = s_rgb.view(B * S, 3, img_H, img_W)
@@ -264,20 +263,20 @@ class EncoderDecoder(nn.Module):
         all_depth = torch.cat([s_depth, q_depth], dim=0)
 
         feats = self.encode(all_rgb, all_depth)  # Assume feats[-1] is deepest
-        supp_feats = feats[-1][:B * S]  # [B*S, C, h', w']
-        qry_feats = feats[-1][B * S:]   # [B, C, h', w']
-        feat_size = qry_feats.shape[-2:]
+        supp_feats = [x[:B * S] for x in feats]  # [B*S, C, h', w']
+        qry_feats = [x[B * S:] for x in feats]   # [B, C, h', w']
+        # feat_size = qry_feats.shape[-2:]
 
         # Compute per-image prototypes (foreground and background)
         fg_protos = []
         bg_protos = []
 
         for i in range(B * S):
-            feat = supp_feats[i:i+1]  # [1, C, h', w']
+            s_feat = supp_feats[-1][i:i+1]  # [1, C, h', w']
             fg_mask = (s_mask[i] == 1).float()
             bg_mask = (s_mask[i] == 0).float()
-            fg_proto = self.get_masked_proto(feat, fg_mask)
-            bg_proto = self.get_masked_proto(feat, bg_mask)
+            fg_proto = self.get_masked_proto(s_feat, fg_mask)
+            bg_proto = self.get_masked_proto(s_feat, bg_mask)
             fg_protos.append(fg_proto)
             bg_protos.append(bg_proto)
 
@@ -288,21 +287,24 @@ class EncoderDecoder(nn.Module):
         # Cosine similarity prediction for each query image
         logits_list = []
         for i in range(B):
-            qry_feat = qry_feats[i:i+1]  # [1, C, h', w']
-            fg_sim = self.similarity(qry_feat, fg_proto[i])  # [1, h', w']
-            bg_sim = self.similarity(qry_feat, bg_proto[i])  # [1, h', w']
-            logit = torch.stack([bg_sim, fg_sim], dim=1)     # [1, 2, h', w']
-            logit = F.interpolate(logit, size=(img_H, img_W), mode='bilinear', align_corners=False)
-            logits_list.append(logit)
+            q_feat = qry_feats[-1][i:i+1]  # [1, C, h', w']
+            fg_sim = self.similarity(q_feat, fg_proto[i])  # [1, h', w']
+            bg_sim = self.similarity(q_feat, bg_proto[i])  # [1, h', w']
+            q_sim = torch.stack([bg_sim, fg_sim], dim=1)     # [1, 2, h', w']
+            q_sim_prob = F.softmax(q_sim/self.cfg.temperature, dim=1)
+            q_sim_logit = F.interpolate(q_sim_prob, size=(img_H, img_W), mode='bilinear', align_corners=False)
+            logits_list.append(q_sim_logit)
 
-        logits = torch.cat(logits_list, dim=0)  # [B, 2, H, W]
+        logits = self.decode(qry_feats, q_rgb)  # [B, 2, H, W]
+        q_sim_logits = torch.cat(logits_list, dim=0)
+        fused_logits = self.cfg.alpha * logits + (1 - self.cfg.alpha) * q_sim_logits
 
         if q_gt is not None:
-            loss = self.criterion(logits, q_gt.long())
+            loss = self.criterion(fused_logits, q_gt.long())
             loss = loss[q_gt != 255].mean()
-            return loss, logits
+            return loss, fused_logits
         else:
-            return logits
+            return fused_logits
     
     def get_masked_proto(self, feat, mask):
         feat = F.interpolate(feat, size=mask.shape[-2:], mode='bilinear', align_corners=False)

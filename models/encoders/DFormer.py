@@ -388,7 +388,7 @@ class DFormerTrav(BaseModule):
             self.downsample_layers_e.append(downsample_layer_e)
 
         self.stages = nn.ModuleList()
-        dp_rates=[x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))] 
+        dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))] 
         cur = 0
         for i in range(len(dims)):
             stage = nn.Sequential(

@@ -33,7 +33,6 @@ from utils.val_mm import fss_evaluate, evaluate_msf
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", default=f'local_configs.Trav.DFormer_Base', type=str, help="train config file path")
 parser.add_argument("--gpus", default=2, type=int, help="used gpu number")
-parser.add_argument('--device', type=str, default='cuda:1')  # Change to 'cuda:1' for GPU 0
 parser.add_argument("-v", "--verbose", default=False, action="store_true")
 parser.add_argument("--epochs", default=0)
 parser.add_argument("--show_image", "-s", default=False, action="store_true")
@@ -150,7 +149,7 @@ if __name__ == '__main__':
             BatchNorm2d = nn.BatchNorm2d
             logger.info("using regular bn")
 
-        device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+        device = torch.device(config.device if torch.cuda.is_available() else "cpu")
         model = segmodel(
             cfg=config,
             criterion=criterion,
@@ -238,7 +237,8 @@ if __name__ == '__main__':
         engine.register_state(dataloader=train_loader, model=model, optimizer=optimizer)
         if engine.continue_state_object:
             engine.restore_checkpoint()
-        wandb.init(project="MM-FSS", config=config)
+        if config.use_wandb:
+            wandb.init(project="MM-FSS", config=config)
         for epoch in range(engine.state.epoch, config.epochs + 1):
             model.train()
             i = 0
@@ -267,9 +267,9 @@ if __name__ == '__main__':
 
                 if args.amp:
                     with torch.autocast(device_type="cuda", dtype=torch.float16):
-                        loss, out = model.forward_meta(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)
+                        loss, out = model.meta_forward(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)
                 else:
-                    loss, out = model.forward_meta(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)
+                    loss, out = model.meta_forward(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)
 
                 # reduce the whole loss over multi-gpu
                 if engine.distributed:
@@ -440,19 +440,20 @@ if __name__ == '__main__':
                         ious, miou = metric.compute_iou()
                         acc, macc = metric.compute_pixel_acc()
                         f1, mf1 = metric.compute_f1()
-                        wandb.log({
-                            "epoch": epoch,
-                            "mIoU": miou,
-                            "mean Acc": macc,
-                            "mean F1": mf1,
-                            "pixel Acc": acc,
-                            "F1_cls_0": f1[0],
-                            "F1_cls_1": f1[1],
-                            "IoU_cls_0": ious[0],
-                            "IoU_cls_1": ious[1],
-                            "Acc_cls_0": acc[0],
-                            "Acc_cls_1": acc[1],
-                        })
+                        if config.use_wandb:
+                            wandb.log({
+                                "epoch": epoch,
+                                "mIoU": miou,
+                                "mean Acc": macc,
+                                "mean F1": mf1,
+                                "pixel Acc": acc,
+                                "F1_cls_0": f1[0],
+                                "F1_cls_1": f1[1],
+                                "IoU_cls_0": ious[0],
+                                "IoU_cls_1": ious[1],
+                                "Acc_cls_0": acc[0],
+                                "Acc_cls_1": acc[1],
+                            })
 
                     if miou > best_miou:
                         best_miou = miou

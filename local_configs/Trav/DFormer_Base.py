@@ -1,11 +1,12 @@
 from .._base_.datasets.Trav import *
 
 """ Settings for network, this would be different for each kind of model"""
-C.dataset_name = "NYUDepthv2"
-C.dataset_path = '/home/edward/data/trav'
+C.use_wandb = True
+C.device = 'cuda:0'  # Change to 'cuda:1' for GPU 0
 C.backbone = "DFormerTrav-Base"  # Remember change the path below.
 C.pretrained_model = "checkpoints/pretrained/DFormerTrav_Base_epoch-1_miou_61.19.pt"
 C.decoder = "ham"
+C.num_classes = 2
 C.decoder_embed_dim = 512
 C.optimizer = "AdamW"
 
@@ -14,8 +15,8 @@ C.lr = 6e-5
 C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 0.01
-C.shots = 1
-C.batch_size = 1  # 3 is totally fine for FSS if memory allows
+C.shots = 5
+C.batch_size = 2  # 3 is totally fine for FSS if memory allows
 C.epochs = 100
 C.episodes_per_epoch = 100
 C.num_workers = 8
@@ -26,6 +27,8 @@ C.bn_eps = 1e-3
 C.bn_momentum = 0.1
 C.drop_path_rate = 0.1
 C.aux_rate = 0
+C.temperature = 1
+C.alpha = 0.5
 
 """Eval Config"""
 C.eval_iter = 25

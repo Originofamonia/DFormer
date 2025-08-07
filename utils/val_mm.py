@@ -227,7 +227,7 @@ def fss_evaluate(fss_model, dataloader, config, device, engine, save_dir=None):
         q_depth = batch["q_depth"].to(device, non_blocking=True)
 
         # Forward
-        loss, q_logits = fss_model.forward_meta(s_rgb, s_depth, s_gt, q_rgb, q_depth, q_gt)
+        q_logits = fss_model.meta_forward(s_rgb, s_depth, s_gt, q_rgb, q_depth)
 
         # Update metrics
         metrics.update(q_logits, q_gt)
